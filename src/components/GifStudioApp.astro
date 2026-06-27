@@ -1,0 +1,98 @@
+---
+import { Image } from 'astro:assets';
+import TerminalPanel from './TerminalPanel.astro';
+---
+
+<div class="studio-grid">
+  <div class="studio-assets">
+    <TerminalPanel title="Base GIF" class="asset-panel">
+      <div class="panel-copy">
+        <div class="dropzone combo-dropzone" id="base-dropzone" role="group" aria-label="Load base GIF from file or URL">
+          <label class="dropzone-prompt" for="base-file-input">
+            <span><strong>Drop a GIF</strong>or click to choose a base animation.</span>
+            <input class="sr-only" id="base-file-input" type="file" accept=".gif,image/gif" />
+          </label>
+
+          <div class="url-loader" aria-label="Load base GIF from URL">
+            <label class="field" for="base-url-input">
+              Base GIF URL
+              <input id="base-url-input" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/base.gif" />
+            </label>
+            <button class="action-button" id="base-url-load-button" type="button" is-="button">Load</button>
+          </div>
+        </div>
+
+        <p class="selected-file" id="base-selected-file">Using default base GIF.</p>
+        <div class="preview-frame">
+          <Image id="base-preview-image" src="/assets/base/woman_is_talking.gif" alt="Base woman is talking GIF" width={400} height={218} data-managed-loading />
+        </div>
+      </div>
+    </TerminalPanel>
+
+    <TerminalPanel title="Overlay image" class="asset-panel">
+      <div class="panel-copy">
+        <div class="dropzone combo-dropzone" id="dropzone" role="group" aria-label="Load overlay image from file or URL">
+          <label class="dropzone-prompt" for="file-input">
+            <span><strong>Drop an image</strong>or click to choose a PNG, JPEG, GIF, or WebP overlay.</span>
+            <input class="sr-only" id="file-input" type="file" accept=".webp,.png,.jpg,.jpeg,.gif,image/webp,image/png,image/jpeg,image/gif" />
+          </label>
+
+          <div class="url-loader" aria-label="Load overlay image from URL">
+            <label class="field" for="overlay-url-input">
+              Overlay image URL
+              <input id="overlay-url-input" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/overlay.png" />
+            </label>
+            <button class="action-button" id="overlay-url-load-button" type="button" is-="button">Load</button>
+          </div>
+        </div>
+
+        <p class="selected-file" id="selected-file">Using default overlay image.</p>
+        <div class="preview-frame overlay-preview" id="overlay-preview" hidden>
+          <Image id="overlay-preview-image" src="/assets/overlays/brainage.jpg" alt="Selected overlay preview" width={400} height={400} data-managed-loading />
+        </div>
+      </div>
+    </TerminalPanel>
+  </div>
+
+  <TerminalPanel title="Editor" class="editor-panel">
+    <div class="preview-frame overlay-editor" id="overlay-editor">
+      <div class="placement-stage" id="placement-stage">
+        <Image class="stage-base" id="stage-base" src="/assets/base/woman_is_talking.gif" alt="Base GIF editor preview" width={400} height={218} draggable="false" data-managed-loading />
+        <div class="stage-overlay" id="stage-overlay" hidden>
+          <Image id="overlay-image" src="/assets/overlays/brainage.jpg" alt="Overlay placement preview" width={400} height={400} draggable="false" data-managed-loading />
+        </div>
+      </div>
+    </div>
+
+    <div class="controls" aria-label="Overlay placement controls">
+      <label for="x-input">
+        X
+        <input id="x-input" type="number" step="1" value="58" />
+      </label>
+      <label for="y-input">
+        Y
+        <input id="y-input" type="number" step="1" value="0" />
+      </label>
+      <label for="width-input">
+        Width
+        <input id="width-input" type="number" min="1" step="1" value="120" />
+      </label>
+      <label for="height-input">
+        Height
+        <input id="height-input" type="number" min="1" step="1" value="120" />
+      </label>
+    </div>
+
+    <div class="panel-actions editor-actions">
+      <label class="handle-toggle" for="handles-toggle">
+        <input id="handles-toggle" type="checkbox" checked />
+        Resize handles
+      </label>
+      <a class="action-button download-button disabled" id="download-link" aria-disabled="true">Download GIF</a>
+    </div>
+
+    <p class="status" id="status" aria-live="polite" hidden></p>
+  </TerminalPanel>
+</div>
+
+<script src="../scripts/gifStudio.ts"></script>

@@ -1,0 +1,10 @@
+---
+import GifStudioApp from '../components/GifStudioApp.astro';
+import SiteLayout from '../layouts/SiteLayout.astro';
+
+const description = 'Render a custom image over the base GIF, tune its position in the browser, and download the result.';
+---
+
+<SiteLayout title="Home" description={description}>
+  <GifStudioApp />
+</SiteLayout>

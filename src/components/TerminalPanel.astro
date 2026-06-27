@@ -1,0 +1,17 @@
+---
+export interface Props {
+  title?: string;
+  class?: string;
+}
+
+const { title, class: className } = Astro.props;
+---
+
+<section class:list={['terminal-panel', className]} box-="square" shear-="top">
+  {title && (
+    <div class="panel-header">
+      <h2>{title}</h2>
+    </div>
+  )}
+  <slot />
+</section>
