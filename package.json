@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@astrojs/check": "0.9.9",
-    "@brainage04/astro-shell": "github:brainage04/brainage04-astro-shell#v0.3.4",
+    "@brainage04/astro-shell": "github:brainage04/AstroShell#v0.3.4",
     "@ffmpeg/core": "0.12.10",
     "@ffmpeg/ffmpeg": "0.12.15",
     "@ffmpeg/util": "0.12.2",
