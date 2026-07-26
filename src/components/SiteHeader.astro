@@ -1,12 +1,14 @@
 ---
+import { base } from 'astro:config/client';
+
 const pathname = Astro.url.pathname;
-const isActive = pathname === '/';
+const isActive = pathname === base;
 ---
 
 <header class="site-header">
   <nav aria-label="Primary navigation">
     <div class="nav-links">
-      <a href="/" aria-current={isActive ? 'page' : undefined} data-active={isActive ? 'true' : undefined}>GifStudio</a>
+      <a href={base} aria-current={isActive ? 'page' : undefined} data-active={isActive ? 'true' : undefined}>GifStudio</a>
     </div>
   </nav>
 </header>
@@ -16,17 +18,16 @@ const isActive = pathname === '/';
     position: sticky;
     inset-block-start: 0;
     z-index: 5;
-    background: color-mix(in srgb, var(--background0) 90%, transparent);
-    backdrop-filter: blur(12px);
-    border-block-end: 1px solid color-mix(in srgb, var(--foreground2) 45%, transparent);
+    background: var(--background0);
+    border-block-end: 1px solid var(--border-subtle);
   }
 
   nav {
-    width: min(100% - 1.5rem, 70rem);
+    width: min(100% - 3rem, var(--site-main-width));
     margin-inline: auto;
     display: flex;
     justify-content: center;
-    padding-block: clamp(0.65rem, 1.4vw, 0.85rem);
+    padding-block: clamp(0.8rem, 1.6vw, 1rem);
   }
 
   .nav-links {

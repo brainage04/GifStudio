@@ -8,24 +8,31 @@
 @import '@webtui/css/components/separator.css';
 @import '@webtui/css/components/pre.css';
 
-:root {
-  --background0: #151515;
-  --background1: #1f1f1f;
-  --background2: #2a2a2a;
-  --background3: #3a3a3a;
-  --foreground0: #f5f5f5;
-  --foreground1: #d7d7d7;
-  --foreground2: #9f9f9f;
-  --accent: #f36f9f;
-  --accent-cyan: #8bd5ff;
-  --accent-yellow: #f7d774;
-  --panel-bg: color-mix(in srgb, var(--background1) 92%, transparent);
-  --panel-border: color-mix(in srgb, var(--foreground2) 68%, transparent);
-  --panel-shadow: 0 1.25rem 3rem color-mix(in srgb, #000 28%, transparent);
-  --control-bg: color-mix(in srgb, var(--background0) 80%, transparent);
-  --control-border: color-mix(in srgb, var(--foreground2) 54%, transparent);
-  --control-height: 2.9rem;
-  --font-family: 'Courier New', Courier, monospace;
+html:root {
+  --font-mono: "Courier New", Courier, monospace;
+  --font-family: var(--font-mono);
+  --background0: #171218;
+  --background1: #201820;
+  --background2: #2b202d;
+  --background3: #433247;
+  --foreground0: #fff8fc;
+  --foreground1: #ead8e7;
+  --foreground2: #bca5bf;
+  --surface: #1d171e;
+  --surface-raised: #251c27;
+  --border-subtle: rgb(217 180 237 / 20%);
+  --border-strong: rgb(239 179 195 / 52%);
+  --shadow-soft: 0 1rem 2.5rem rgb(23 18 24 / 48%);
+  --accent: #efb3c3;
+  --accent-cyan: #d9b4ed;
+  --accent-yellow: #f8d8e5;
+  --panel-bg: color-mix(in srgb, var(--surface) 94%, transparent);
+  --panel-border: var(--border-subtle);
+  --panel-shadow: var(--shadow-soft);
+  --control-bg: var(--surface-raised);
+  --control-border: var(--border-strong);
+  --control-height: 2.75rem;
+  --site-main-width: 70rem;
   color-scheme: dark;
 }
 
@@ -54,9 +61,7 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background-image: linear-gradient(color-mix(in srgb, var(--foreground0) 4%, transparent) 1px, transparent 1px);
-  background-size: 100% 1lh;
-  opacity: 0.08;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--accent-cyan) 5%, transparent), transparent 38%);
   z-index: 0;
 }
 
@@ -66,9 +71,9 @@ body > * {
 }
 
 main {
-  width: min(100% - 3rem, 70rem);
+  width: min(100% - 3rem, var(--site-main-width));
   margin-inline: auto;
-  padding-block: clamp(1.75rem, 4vw, 4.5rem);
+  padding-block: clamp(1.75rem, 4vw, 4rem);
 }
 
 img {
@@ -170,9 +175,10 @@ hr,
 
 
 .terminal-panel {
+  --box-border-color: var(--panel-border);
   border-color: var(--panel-border);
   background: var(--panel-bg);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground0) 7%, transparent), var(--panel-shadow);
+  box-shadow: var(--panel-shadow);
   padding: clamp(1.1rem, 2.5vw, 1.65rem);
 }
 
@@ -208,15 +214,15 @@ hr,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  min-height: 2.6rem;
-  border: 1px solid var(--control-border);
-  background: color-mix(in srgb, var(--background2) 82%, transparent);
-  color: var(--foreground0);
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  border: 1px solid color-mix(in srgb, var(--accent-cyan) 68%, var(--foreground2));
+  background: var(--accent-cyan);
+  color: var(--background0);
+  font: 700 0.9rem/1 var(--font-mono);
   text-decoration: none;
-  padding: 0.55rem 0.8rem;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground0) 8%, transparent);
-  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+  padding: 0.65rem 0.9rem;
+  transition: translate 160ms ease, border-color 160ms ease, background-color 160ms ease, color 160ms ease;
 }
 
 .url-loader .action-button {
@@ -227,9 +233,10 @@ hr,
 }
 
 .action-button:not(:disabled):not(.disabled):hover {
-  border-color: var(--accent-cyan);
-  background: color-mix(in srgb, var(--accent-cyan) 16%, var(--background2));
-  color: var(--foreground0);
+  translate: 0 -0.1rem;
+  border-color: var(--foreground0);
+  background: var(--foreground0);
+  color: var(--background0);
 }
 
 .action-button:disabled,
@@ -377,6 +384,7 @@ input[type='url']::placeholder {
   width: 100%;
   max-width: 46rem;
   overflow: hidden;
+  border: 1px solid var(--border-subtle);
   background: var(--background0);
 }
 
@@ -503,5 +511,11 @@ input[type='checkbox'] {
 
   .action-button {
     width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  main {
+    width: min(100% - 3rem, var(--site-main-width));
   }
 }

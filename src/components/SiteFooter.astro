@@ -8,18 +8,19 @@
 
 <style>
   .site-footer {
-    border-block-start: 1px solid var(--foreground2);
+    border-block-start: 1px solid var(--border-subtle);
+    background: var(--background1);
     color: var(--foreground2);
   }
 
   .footer-inner {
-    width: min(100% - 1rem, 72rem);
+    width: min(100% - 3rem, var(--site-main-width));
     margin-inline: auto;
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
-    gap: 0.5rem 1rem;
-    padding-block: 1rem;
+    gap: 0.65rem 1rem;
+    padding-block: clamp(1.1rem, 2vw, 1.4rem);
   }
 
   a {
