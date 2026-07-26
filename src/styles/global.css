@@ -66,7 +66,7 @@ body > * {
 }
 
 main {
-  width: min(100% - 1.5rem, 70rem);
+  width: min(100% - 3rem, 70rem);
   margin-inline: auto;
   padding-block: clamp(1.75rem, 4vw, 4.5rem);
 }
@@ -168,21 +168,6 @@ hr,
   text-shadow: 0 2rem 4rem color-mix(in srgb, var(--accent-cyan) 16%, transparent);
 }
 
-.page-header .description {
-  margin: 0;
-  color: var(--foreground1);
-  font-size: clamp(1rem, 2vw, 1.18rem);
-  line-height: 1.55;
-  max-width: 62ch;
-}
-
-.eyebrow {
-  margin: 0;
-  color: var(--accent-cyan);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 700;
-}
 
 .terminal-panel {
   border-color: var(--panel-border);
@@ -501,7 +486,7 @@ input[type='checkbox'] {
 
 @media (max-width: 760px) {
   main {
-    width: min(100% - 1.25rem, 70rem);
+    width: min(100% - 3rem, 70rem);
     padding-block: 1.15rem 2.25rem;
   }
 
