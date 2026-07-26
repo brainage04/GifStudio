@@ -1,8 +1,7 @@
 ---
-import SiteFooter from '../components/SiteFooter.astro';
-import SiteHeader from '../components/SiteHeader.astro';
-import '../styles/global.css';
+import ShellLayout from '@brainage04/astro-shell/components/SiteLayout.astro';
 import { base } from 'astro:config/client';
+import '../styles/global.css';
 
 export interface Props {
   title: string;
@@ -10,25 +9,22 @@ export interface Props {
 }
 
 const { title, description = 'Browser-based GIF overlay renderer by brainage04.' } = Astro.props;
-const pageTitle = title === 'Home' ? 'GifStudio' : `${title} | GifStudio`;
 const faviconHref = `${base.replace(/\/$/, '')}/assets/overlays/brainage.jpg`;
+const navItems = [
+  { name: 'GifStudio', href: base, match: base, activeMode: 'exact' as const },
+  { name: 'Main site', href: 'https://brainage04.github.io/', external: true },
+] as const;
 ---
 
-<!doctype html>
-<html lang="en" data-webtui-theme="dark">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content={description} />
-    <title>{pageTitle}</title>
-    <link rel="icon" type="image/jpeg" href={faviconHref} />
-  </head>
-  <body>
-    <a class="skip-link" href="#main">Skip to content</a>
-    <SiteHeader />
-    <main id="main">
-      <slot />
-    </main>
-    <SiteFooter />
-  </body>
-</html>
+<ShellLayout
+  title={title}
+  siteName="GifStudio"
+  homeTitle="GifStudio"
+  navItems={navItems}
+  sourceHref="https://github.com/brainage04/GifStudio"
+  description={description}
+  faviconHref={faviconHref}
+  faviconType="image/jpeg"
+>
+  <slot />
+</ShellLayout>

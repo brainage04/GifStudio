@@ -7,20 +7,16 @@
     "dev": "astro dev",
     "build": "astro build",
     "check": "astro check",
-    "preview": "astro preview",
-    "start": "node ./dist/server/entry.mjs"
+    "preview": "astro preview"
   },
   "dependencies": {
     "@astrojs/check": "0.9.9",
-    "@astrojs/node": "11.0.2",
+    "@brainage04/astro-shell": "github:brainage04/brainage04-astro-shell#v0.3.4",
     "@ffmpeg/core": "0.12.10",
     "@ffmpeg/ffmpeg": "0.12.15",
     "@ffmpeg/util": "0.12.2",
     "@webtui/css": "0.1.9",
     "astro": "7.1.3",
     "typescript": "6.0.3"
-  },
-  "devDependencies": {
-    "@types/node": "26.1.1"
   }
 }
