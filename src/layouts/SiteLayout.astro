@@ -2,6 +2,7 @@
 import SiteFooter from '../components/SiteFooter.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import '../styles/global.css';
+import { base } from 'astro:config/client';
 
 export interface Props {
   title: string;
@@ -10,6 +11,7 @@ export interface Props {
 
 const { title, description = 'Browser-based GIF overlay renderer by brainage04.' } = Astro.props;
 const pageTitle = title === 'Home' ? 'GifStudio' : `${title} | GifStudio`;
+const faviconHref = `${base.replace(/\/$/, '')}/assets/overlays/brainage.jpg`;
 ---
 
 <!doctype html>
@@ -19,7 +21,7 @@ const pageTitle = title === 'Home' ? 'GifStudio' : `${title} | GifStudio`;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <title>{pageTitle}</title>
-    <link rel="icon" type="image/jpeg" href="/default-overlay-image" />
+    <link rel="icon" type="image/jpeg" href={faviconHref} />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
