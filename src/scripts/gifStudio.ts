@@ -105,7 +105,7 @@ let renderSequence = 0;
 let baseFetchController: AbortController | null = null;
 let overlayFetchController: AbortController | null = null;
 const ffmpeg = new FFmpeg();
-let ffmpegReady: Promise<void> | null = null;
+let ffmpegReady: Promise<boolean> | null = null;
 
 const setStatus = (message: string) => {
   statusText.textContent = message;
@@ -310,6 +310,7 @@ const renderGif = async () => {
   if (!overlayFile) {
     return;
   }
+  const activeOverlayFile = overlayFile;
 
   cancelScheduledRender();
   renderController?.abort();
@@ -324,15 +325,17 @@ const renderGif = async () => {
     if (renderController.signal.aborted) return;
 
     setStatus('Rendering GIF in this browser...');
-    const input = baseGifFile ?? await fetch(`${appBase}assets/base/woman_is_talking.gif`).then(async (response) => {
+    let input = baseGifFile;
+    if (!input) {
+      const response = await fetch(`${appBase}assets/base/woman_is_talking.gif`);
       if (!response.ok) throw new Error('Default base GIF could not be loaded.');
-      return new File([await response.blob()], 'woman_is_talking.gif', { type: 'image/gif' });
-    });
+      input = new File([await response.blob()], 'woman_is_talking.gif', { type: 'image/gif' });
+    }
     const inputName = `base-${requestId}.gif`;
     const overlayName = `overlay-${requestId}`;
     const outputName = `rendered-${requestId}.gif`;
     await ffmpeg.writeFile(inputName, await fetchFile(input));
-    await ffmpeg.writeFile(overlayName, await fetchFile(overlayFile));
+    await ffmpeg.writeFile(overlayName, await fetchFile(activeOverlayFile));
     await ffmpeg.exec([
       '-i', inputName,
       '-i', overlayName,
@@ -343,7 +346,8 @@ const renderGif = async () => {
     const data = await ffmpeg.readFile(outputName);
     await Promise.all([ffmpeg.deleteFile(inputName), ffmpeg.deleteFile(overlayName), ffmpeg.deleteFile(outputName)]);
     if (requestId !== renderSequence || renderController.signal.aborted) return;
-    showResult(new Blob([data], { type: 'image/gif' }));
+    const gifBytes = data instanceof Uint8Array ? new Uint8Array(data) : new TextEncoder().encode(data);
+    showResult(new Blob([gifBytes], { type: 'image/gif' }));
     setStatus('');
   } catch (error) {
     if (!isAbortError(error)) {

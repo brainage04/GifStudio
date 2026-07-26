@@ -1,6 +1,8 @@
 ---
 import { base } from 'astro:config/client';
 import TerminalPanel from './TerminalPanel.astro';
+
+const assetPath = (path: string) => `${base.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
 ---
 
 <div class="studio-grid">
@@ -24,7 +26,7 @@ import TerminalPanel from './TerminalPanel.astro';
 
         <p class="selected-file" id="base-selected-file">Using default base GIF.</p>
         <div class="preview-frame">
-          <img id="base-preview-image" src={`${base}/assets/base/woman_is_talking.gif`} alt="Base woman is talking GIF" width="400" height="218" data-managed-loading />
+          <img id="base-preview-image" src={assetPath('assets/base/woman_is_talking.gif')} alt="Base woman is talking GIF" width="400" height="218" data-managed-loading />
         </div>
       </div>
     </TerminalPanel>
@@ -48,7 +50,7 @@ import TerminalPanel from './TerminalPanel.astro';
 
         <p class="selected-file" id="selected-file">Using default overlay image.</p>
         <div class="preview-frame overlay-preview" id="overlay-preview" hidden>
-          <img id="overlay-preview-image" src={`${base}/assets/overlays/brainage.jpg`} alt="Selected overlay preview" width="400" height="400" data-managed-loading />
+          <img id="overlay-preview-image" src={assetPath('assets/overlays/brainage.jpg')} alt="Selected overlay preview" width="400" height="400" data-managed-loading />
         </div>
       </div>
     </TerminalPanel>
@@ -57,9 +59,9 @@ import TerminalPanel from './TerminalPanel.astro';
   <TerminalPanel title="Editor" class="editor-panel">
     <div class="preview-frame overlay-editor" id="overlay-editor">
       <div class="placement-stage" id="placement-stage">
-        <img class="stage-base" id="stage-base" src={`${base}/assets/base/woman_is_talking.gif`} alt="Base GIF editor preview" width="400" height="218" draggable="false" data-managed-loading />
+        <img class="stage-base" id="stage-base" src={assetPath('assets/base/woman_is_talking.gif')} alt="Base GIF editor preview" width="400" height="218" draggable="false" data-managed-loading />
         <div class="stage-overlay" id="stage-overlay" hidden>
-          <img id="overlay-image" src={`${base}/assets/overlays/brainage.jpg`} alt="Overlay placement preview" width="400" height="400" draggable="false" data-managed-loading />
+          <img id="overlay-image" src={assetPath('assets/overlays/brainage.jpg')} alt="Overlay placement preview" width="400" height="400" draggable="false" data-managed-loading />
         </div>
       </div>
     </div>
