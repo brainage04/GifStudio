@@ -1,10 +1,9 @@
-import node from '@astrojs/node';
 import { defineConfig } from 'astro/config';
 
+const repository = process.env.GITHUB_REPOSITORY?.split('/')[1] ?? 'GifStudio';
+const isPagesBuild = process.env.GITHUB_ACTIONS === 'true';
+
 export default defineConfig({
-  output: 'server',
-  adapter: node({
-    mode: 'standalone',
-    bodySizeLimit: 50 * 1024 * 1024,
-  }),
+  output: 'static',
+  base: isPagesBuild ? `/${repository}` : '/',
 });

@@ -1,3 +1,10 @@
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile } from '@ffmpeg/util';
+import coreUrl from '@ffmpeg/core?url';
+import wasmUrl from '@ffmpeg/core/wasm?url';
+
+const appBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/`;
+
 const requireElement = <ElementType extends HTMLElement>(
   id: string,
   constructor: new (...args: never[]) => ElementType,
@@ -97,6 +104,8 @@ let renderController: AbortController | null = null;
 let renderSequence = 0;
 let baseFetchController: AbortController | null = null;
 let overlayFetchController: AbortController | null = null;
+const ffmpeg = new FFmpeg();
+let ffmpegReady: Promise<void> | null = null;
 
 const setStatus = (message: string) => {
   statusText.textContent = message;
@@ -250,7 +259,7 @@ const setBaseGifFile = (file: File | null) => {
       URL.revokeObjectURL(basePreviewUrl);
       basePreviewUrl = null;
     }
-    setBasePreviewSource('/base.gif');
+    setBasePreviewSource(`${appBase}assets/base/woman_is_talking.gif`);
     baseSelectedFile.textContent = 'Using default base GIF.';
     if (overlayFile) {
       scheduleRender(0);
@@ -297,14 +306,6 @@ const cancelScheduledRender = () => {
   }
 };
 
-const responseError = async (response: Response, fallback: string) => {
-  const payload: unknown = await response.json().catch(() => null);
-  if (payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string') {
-    return payload.error;
-  }
-  return fallback;
-};
-
 const renderGif = async () => {
   if (!overlayFile) {
     return;
@@ -315,38 +316,38 @@ const renderGif = async () => {
   renderController = new AbortController();
   const requestId = ++renderSequence;
   resetResult();
-  setStatus('Rendering GIF...');
-
-  const formData = new FormData();
-  formData.append('overlay', overlayFile);
-  if (baseGifFile) {
-    formData.append('baseGif', baseGifFile);
-  }
-  formData.append('x', xInput.value);
-  formData.append('y', yInput.value);
-  formData.append('width', widthInput.value);
-  formData.append('height', heightInput.value);
+  setStatus('Loading browser renderer...');
 
   try {
-    const response = await fetch('/api/render', {
-      method: 'POST',
-      body: formData,
-      signal: renderController.signal,
+    ffmpegReady ??= ffmpeg.load({ coreURL: coreUrl, wasmURL: wasmUrl });
+    await ffmpegReady;
+    if (renderController.signal.aborted) return;
+
+    setStatus('Rendering GIF in this browser...');
+    const input = baseGifFile ?? await fetch(`${appBase}assets/base/woman_is_talking.gif`).then(async (response) => {
+      if (!response.ok) throw new Error('Default base GIF could not be loaded.');
+      return new File([await response.blob()], 'woman_is_talking.gif', { type: 'image/gif' });
     });
-
-    if (!response.ok) {
-      throw new Error(await responseError(response, 'Render failed.'));
-    }
-
-    const blob = await response.blob();
-    if (requestId !== renderSequence) {
-      return;
-    }
-    showResult(blob);
+    const inputName = `base-${requestId}.gif`;
+    const overlayName = `overlay-${requestId}`;
+    const outputName = `rendered-${requestId}.gif`;
+    await ffmpeg.writeFile(inputName, await fetchFile(input));
+    await ffmpeg.writeFile(overlayName, await fetchFile(overlayFile));
+    await ffmpeg.exec([
+      '-i', inputName,
+      '-i', overlayName,
+      '-filter_complex', `[1:v]scale=${widthInput.value}:${heightInput.value}[overlay];[0:v][overlay]overlay=${xInput.value}:${yInput.value},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`,
+      '-loop', '0',
+      outputName,
+    ]);
+    const data = await ffmpeg.readFile(outputName);
+    await Promise.all([ffmpeg.deleteFile(inputName), ffmpeg.deleteFile(overlayName), ffmpeg.deleteFile(outputName)]);
+    if (requestId !== renderSequence || renderController.signal.aborted) return;
+    showResult(new Blob([data], { type: 'image/gif' }));
     setStatus('');
   } catch (error) {
     if (!isAbortError(error)) {
-      setStatus(errorMessage(error, 'Render failed.'));
+      setStatus(errorMessage(error, 'Render failed in this browser.'));
     }
   } finally {
     if (requestId === renderSequence) {
@@ -383,9 +384,38 @@ const handleBaseFiles = (files: FileList | null) => {
   setStatus('');
 };
 
-const contentDispositionFilename = (disposition: string, fallback: string) => {
-  const match = disposition.match(/filename="([^"]+)"/);
-  return match ? match[1] : fallback;
+const filenameFromUrl = (value: string, fallback: string) => {
+  try {
+    const name = new URL(value).pathname.split('/').pop();
+    return name || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const fetchRemoteFile = async (value: string, accept: string, fallback: string, signal: AbortSignal) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('URL is invalid.');
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Only http and https image URLs are supported.');
+  }
+  let response: Response;
+  try {
+    response = await fetch(url, { headers: { Accept: accept }, signal });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new Error('The remote host did not allow this browser to fetch the image (CORS) or the network request failed.');
+  }
+  if (!response.ok) {
+    throw new Error(`Remote image fetch failed: ${response.status} ${response.statusText}`.trim());
+  }
+  return new File([await response.blob()], filenameFromUrl(url.href, fallback), {
+    type: response.headers.get('Content-Type') || 'application/octet-stream',
+  });
 };
 
 const loadBaseGifFromUrl = async () => {
@@ -401,29 +431,15 @@ const loadBaseGifFromUrl = async () => {
   setStatus('Loading base GIF...');
 
   try {
-    const response = await fetch('/api/fetch-base-gif', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url }),
-      signal: baseFetchController.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(await responseError(response, 'Base GIF fetch failed.'));
+    const file = await fetchRemoteFile(url, 'image/gif,image/*;q=0.8,*/*;q=0.1', 'base.gif', baseFetchController.signal);
+    if (file.type !== 'image/gif' && !file.name.toLowerCase().endsWith('.gif')) {
+      throw new Error('URL did not return a GIF.');
     }
-
-    const blob = await response.blob();
-    const filename = contentDispositionFilename(response.headers.get('Content-Disposition') || '', 'base.gif');
-    const file = new File([blob], filename, { type: 'image/gif' });
     resetResult();
     setBaseGifFile(file);
     setStatus('');
   } catch (error) {
-    if (!isAbortError(error)) {
-      setStatus(errorMessage(error, 'Base GIF fetch failed.'));
-    }
+    if (!isAbortError(error)) setStatus(errorMessage(error, 'Base GIF fetch failed.'));
   } finally {
     baseFetchController = null;
     baseUrlLoadButton.disabled = false;
@@ -466,27 +482,14 @@ const loadOverlayImageFromUrl = async () => {
   setStatus('Loading overlay image...');
 
   try {
-    const response = await fetch('/api/fetch-overlay-image', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url }),
-      signal: overlayFetchController.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(await responseError(response, 'Overlay image fetch failed.'));
+    const file = await fetchRemoteFile(url, 'image/*,*/*;q=0.1', 'overlay-image', overlayFetchController.signal);
+    if (!file.type.startsWith('image/') && !/\.(gif|jpe?g|png|webp)$/i.test(file.name)) {
+      throw new Error('URL did not return a supported image.');
     }
-
-    const blob = await response.blob();
-    const filename = contentDispositionFilename(response.headers.get('Content-Disposition') || '', 'overlay-image');
-    setOverlayBlob(blob, filename);
+    setOverlayFile(file);
     setStatus('');
   } catch (error) {
-    if (!isAbortError(error)) {
-      setStatus(errorMessage(error, 'Overlay image fetch failed.'));
-    }
+    if (!isAbortError(error)) setStatus(errorMessage(error, 'Overlay image fetch failed.'));
   } finally {
     overlayFetchController = null;
     overlayUrlLoadButton.disabled = false;
@@ -495,13 +498,9 @@ const loadOverlayImageFromUrl = async () => {
 
 const loadDefaultOverlayImage = async () => {
   try {
-    const response = await fetch('/default-overlay-image', { cache: 'no-store' });
-    if (!response.ok) {
-      throw new Error('Default overlay image could not be loaded.');
-    }
-
-    const blob = await response.blob();
-    setOverlayBlob(blob, 'brainage.jpg');
+    const response = await fetch(`${appBase}assets/overlays/brainage.jpg`);
+    if (!response.ok) throw new Error('Default overlay image could not be loaded.');
+    setOverlayBlob(await response.blob(), 'brainage.jpg');
     selectedFile.textContent = 'Using default overlay image.';
   } catch (error) {
     setStatus(errorMessage(error, 'Default overlay image could not be loaded.'));

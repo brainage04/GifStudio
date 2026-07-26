@@ -2,6 +2,7 @@
 import SiteFooter from '../components/SiteFooter.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import '../styles/global.css';
+import { base } from 'astro:config/client';
 
 export interface Props {
   title: string;
@@ -19,7 +20,7 @@ const pageTitle = title === 'Home' ? 'GifStudio' : `${title} | GifStudio`;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <title>{pageTitle}</title>
-    <link rel="icon" type="image/jpeg" href="/default-overlay-image" />
+    <link rel="icon" type="image/jpeg" href={`${base}/assets/overlays/brainage.jpg`} />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
