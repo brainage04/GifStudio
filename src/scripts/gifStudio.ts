@@ -2,6 +2,7 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import coreUrl from '@ffmpeg/core?url';
 import wasmUrl from '@ffmpeg/core/wasm?url';
+import { GifRenderer } from '../lib/GifRenderer';
 
 const appBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/`;
 
@@ -44,7 +45,7 @@ const heightInput = requireElement('height-input', HTMLInputElement);
 const MIN_OVERLAY_DIMENSION = 16;
 const MAX_OVERLAY_SCALE = 4;
 const resizeDirections = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const;
-type ResizeDirection = typeof resizeDirections[number];
+type ResizeDirection = (typeof resizeDirections)[number];
 
 type Placement = {
   x: number;
@@ -104,8 +105,7 @@ let renderController: AbortController | null = null;
 let renderSequence = 0;
 let baseFetchController: AbortController | null = null;
 let overlayFetchController: AbortController | null = null;
-const ffmpeg = new FFmpeg();
-let ffmpegReady: Promise<boolean> | null = null;
+const gifRenderer = new GifRenderer(new FFmpeg(), { coreURL: coreUrl, wasmURL: wasmUrl });
 
 const setStatus = (message: string) => {
   statusText.textContent = message;
@@ -314,15 +314,15 @@ const renderGif = async () => {
 
   cancelScheduledRender();
   renderController?.abort();
-  renderController = new AbortController();
+  const controller = new AbortController();
+  renderController = controller;
   const requestId = ++renderSequence;
   resetResult();
   setStatus('Loading browser renderer...');
 
   try {
-    ffmpegReady ??= ffmpeg.load({ coreURL: coreUrl, wasmURL: wasmUrl });
-    await ffmpegReady;
-    if (renderController.signal.aborted) return;
+    await gifRenderer.prepare();
+    if (controller.signal.aborted) return;
 
     setStatus('Rendering GIF in this browser...');
     let input = baseGifFile;
@@ -331,21 +331,14 @@ const renderGif = async () => {
       if (!response.ok) throw new Error('Default base GIF could not be loaded.');
       input = new File([await response.blob()], 'woman_is_talking.gif', { type: 'image/gif' });
     }
-    const inputName = `base-${requestId}.gif`;
-    const overlayName = `overlay-${requestId}`;
-    const outputName = `rendered-${requestId}.gif`;
-    await ffmpeg.writeFile(inputName, await fetchFile(input));
-    await ffmpeg.writeFile(overlayName, await fetchFile(activeOverlayFile));
-    await ffmpeg.exec([
-      '-i', inputName,
-      '-i', overlayName,
-      '-filter_complex', `[1:v]scale=${widthInput.value}:${heightInput.value}[overlay];[0:v][overlay]overlay=${xInput.value}:${yInput.value},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`,
-      '-loop', '0',
-      outputName,
-    ]);
-    const data = await ffmpeg.readFile(outputName);
-    await Promise.all([ffmpeg.deleteFile(inputName), ffmpeg.deleteFile(overlayName), ffmpeg.deleteFile(outputName)]);
-    if (requestId !== renderSequence || renderController.signal.aborted) return;
+
+    const data = await gifRenderer.render({
+      id: requestId,
+      baseGif: await fetchFile(input),
+      overlayImage: await fetchFile(activeOverlayFile),
+      filterGraph: `[1:v]scale=${widthInput.value}:${heightInput.value}[overlay];[0:v][overlay]overlay=${xInput.value}:${yInput.value},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`,
+    });
+    if (requestId !== renderSequence || controller.signal.aborted) return;
     const gifBytes = data instanceof Uint8Array ? new Uint8Array(data) : new TextEncoder().encode(data);
     showResult(new Blob([gifBytes], { type: 'image/gif' }));
     setStatus('');
@@ -354,7 +347,7 @@ const renderGif = async () => {
       setStatus(errorMessage(error, 'Render failed in this browser.'));
     }
   } finally {
-    if (requestId === renderSequence) {
+    if (renderController === controller) {
       renderController = null;
     }
   }
@@ -412,7 +405,10 @@ const fetchRemoteFile = async (value: string, accept: string, fallback: string, 
     response = await fetch(url, { headers: { Accept: accept }, signal });
   } catch (error) {
     if (isAbortError(error)) throw error;
-    throw new Error('The remote host did not allow this browser to fetch the image (CORS) or the network request failed.');
+    throw new Error(
+      'The remote host did not allow this browser to fetch the image (CORS) or the network request failed.',
+      { cause: error },
+    );
   }
   if (!response.ok) {
     throw new Error(`Remote image fetch failed: ${response.status} ${response.statusText}`.trim());
@@ -435,7 +431,12 @@ const loadBaseGifFromUrl = async () => {
   setStatus('Loading base GIF...');
 
   try {
-    const file = await fetchRemoteFile(url, 'image/gif,image/*;q=0.8,*/*;q=0.1', 'base.gif', baseFetchController.signal);
+    const file = await fetchRemoteFile(
+      url,
+      'image/gif,image/*;q=0.8,*/*;q=0.1',
+      'base.gif',
+      baseFetchController.signal,
+    );
     if (file.type !== 'image/gif' && !file.name.toLowerCase().endsWith('.gif')) {
       throw new Error('URL did not return a GIF.');
     }
@@ -589,12 +590,15 @@ const handlePointerMove = (event: PointerEvent) => {
     const deltaX = (event.clientX - activePointer.startClientX) / activePointer.stageScale;
     const deltaY = (event.clientY - activePointer.startClientY) / activePointer.stageScale;
     const current = placementValues();
-    updatePlacementInputs({
-      x: activePointer.startX + deltaX,
-      y: activePointer.startY + deltaY,
-      width: current.width,
-      height: current.height,
-    }, { schedule: false });
+    updatePlacementInputs(
+      {
+        x: activePointer.startX + deltaX,
+        y: activePointer.startY + deltaY,
+        width: current.width,
+        height: current.height,
+      },
+      { schedule: false },
+    );
     return;
   }
 

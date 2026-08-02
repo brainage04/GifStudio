@@ -1,15 +1,21 @@
 ---
-import { base } from 'astro:config/client';
-import TerminalPanel from './TerminalPanel.astro';
+import TerminalPanel from '@brainage04/astro-shell/components/TerminalPanel.astro';
+import { withBase } from '@brainage04/astro-shell/withBase';
 
-const assetPath = (path: string) => `${base.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
+const baseGif = withBase('/assets/base/woman_is_talking.gif');
+const overlayImage = withBase('/assets/overlays/brainage.jpg');
 ---
 
 <div class="studio-grid">
   <div class="studio-assets">
     <TerminalPanel title="Base GIF" class="asset-panel">
       <div class="panel-copy">
-        <div class="dropzone combo-dropzone" id="base-dropzone" role="group" aria-label="Load base GIF from file or URL">
+        <div
+          class="dropzone combo-dropzone"
+          id="base-dropzone"
+          role="group"
+          aria-label="Load base GIF from file or URL"
+        >
           <label class="dropzone-prompt" for="base-file-input">
             <span><strong>Drop a GIF</strong>or click to choose a base animation.</span>
             <input class="sr-only" id="base-file-input" type="file" accept=".gif,image/gif" />
@@ -18,7 +24,13 @@ const assetPath = (path: string) => `${base.replace(/\/$/, '')}/${path.replace(/
           <div class="url-loader" aria-label="Load base GIF from URL">
             <label class="field" for="base-url-input">
               Base GIF URL
-              <input id="base-url-input" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/base.gif" />
+              <input
+                id="base-url-input"
+                type="url"
+                inputmode="url"
+                autocomplete="off"
+                placeholder="https://example.com/base.gif"
+              />
             </label>
             <button class="action-button" id="base-url-load-button" type="button" is-="button">Load</button>
           </div>
@@ -26,23 +38,46 @@ const assetPath = (path: string) => `${base.replace(/\/$/, '')}/${path.replace(/
 
         <p class="selected-file" id="base-selected-file">Using default base GIF.</p>
         <div class="preview-frame">
-          <img id="base-preview-image" src={assetPath('assets/base/woman_is_talking.gif')} alt="Base woman is talking GIF" width="400" height="218" data-managed-loading />
+          <img
+            id="base-preview-image"
+            src={baseGif}
+            alt="Base woman is talking GIF"
+            width="400"
+            height="218"
+            data-managed-loading
+          />
         </div>
       </div>
     </TerminalPanel>
 
     <TerminalPanel title="Overlay image" class="asset-panel">
       <div class="panel-copy">
-        <div class="dropzone combo-dropzone" id="dropzone" role="group" aria-label="Load overlay image from file or URL">
+        <div
+          class="dropzone combo-dropzone"
+          id="dropzone"
+          role="group"
+          aria-label="Load overlay image from file or URL"
+        >
           <label class="dropzone-prompt" for="file-input">
             <span><strong>Drop an image</strong>or click to choose a PNG, JPEG, GIF, or WebP overlay.</span>
-            <input class="sr-only" id="file-input" type="file" accept=".webp,.png,.jpg,.jpeg,.gif,image/webp,image/png,image/jpeg,image/gif" />
+            <input
+              class="sr-only"
+              id="file-input"
+              type="file"
+              accept=".webp,.png,.jpg,.jpeg,.gif,image/webp,image/png,image/jpeg,image/gif"
+            />
           </label>
 
           <div class="url-loader" aria-label="Load overlay image from URL">
             <label class="field" for="overlay-url-input">
               Overlay image URL
-              <input id="overlay-url-input" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/overlay.png" />
+              <input
+                id="overlay-url-input"
+                type="url"
+                inputmode="url"
+                autocomplete="off"
+                placeholder="https://example.com/overlay.png"
+              />
             </label>
             <button class="action-button" id="overlay-url-load-button" type="button" is-="button">Load</button>
           </div>
@@ -50,7 +85,14 @@ const assetPath = (path: string) => `${base.replace(/\/$/, '')}/${path.replace(/
 
         <p class="selected-file" id="selected-file">Using default overlay image.</p>
         <div class="preview-frame overlay-preview" id="overlay-preview" hidden>
-          <img id="overlay-preview-image" src={assetPath('assets/overlays/brainage.jpg')} alt="Selected overlay preview" width="400" height="400" data-managed-loading />
+          <img
+            id="overlay-preview-image"
+            src={overlayImage}
+            alt="Selected overlay preview"
+            width="400"
+            height="400"
+            data-managed-loading
+          />
         </div>
       </div>
     </TerminalPanel>
@@ -59,9 +101,26 @@ const assetPath = (path: string) => `${base.replace(/\/$/, '')}/${path.replace(/
   <TerminalPanel title="Editor" class="editor-panel">
     <div class="preview-frame overlay-editor" id="overlay-editor">
       <div class="placement-stage" id="placement-stage">
-        <img class="stage-base" id="stage-base" src={assetPath('assets/base/woman_is_talking.gif')} alt="Base GIF editor preview" width="400" height="218" draggable="false" data-managed-loading />
+        <img
+          class="stage-base"
+          id="stage-base"
+          src={baseGif}
+          alt="Base GIF editor preview"
+          width="400"
+          height="218"
+          draggable="false"
+          data-managed-loading
+        />
         <div class="stage-overlay" id="stage-overlay" hidden>
-          <img id="overlay-image" src={assetPath('assets/overlays/brainage.jpg')} alt="Overlay placement preview" width="400" height="400" draggable="false" data-managed-loading />
+          <img
+            id="overlay-image"
+            src={overlayImage}
+            alt="Overlay placement preview"
+            width="400"
+            height="400"
+            draggable="false"
+            data-managed-loading
+          />
         </div>
       </div>
     </div>
