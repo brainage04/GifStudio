@@ -184,8 +184,10 @@ input[type='url']::placeholder {
 .selected-file,
 .status {
   min-height: 1.55em;
+  margin: 0;
   color: var(--foreground2);
   font-size: 0.92rem;
+  line-height: 1.4;
 }
 
 .status {
