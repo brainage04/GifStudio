@@ -29,4 +29,4 @@ npm run build
 
 ## Deployment
 
-Pushes to `master` are validated and deployed to [GifStudio](https://brainage04.github.io/GifStudio/) through GitHub Actions and GitHub Pages.
+Pushes to `main` are validated and deployed to [GifStudio](https://brainage04.github.io/GifStudio/) through GitHub Actions and GitHub Pages.
