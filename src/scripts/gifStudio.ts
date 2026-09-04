@@ -503,9 +503,9 @@ const loadOverlayImageFromUrl = async () => {
 
 const loadDefaultOverlayImage = async () => {
   try {
-    const response = await fetch(`${appBase}assets/overlays/brainage.jpg`);
+    const response = await fetch(`${appBase}pfp.jpg`);
     if (!response.ok) throw new Error('Default overlay image could not be loaded.');
-    setOverlayBlob(await response.blob(), 'brainage.jpg');
+    setOverlayBlob(await response.blob(), 'pfp.jpg');
     selectedFile.textContent = 'Using default overlay image.';
   } catch (error) {
     setStatus(errorMessage(error, 'Default overlay image could not be loaded.'));
