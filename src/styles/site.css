@@ -1,4 +1,4 @@
-:root {
+html:root {
   --font-mono: 'Courier New', Courier, monospace;
   --font-family: var(--font-mono);
   --background0: #171218;
@@ -26,55 +26,11 @@
   color-scheme: dark;
 }
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.action-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  min-height: 2.75rem;
-  border: 1px solid color-mix(in srgb, var(--accent-cyan) 68%, var(--foreground2));
-  background: var(--accent-cyan);
-  color: var(--background0);
-  font: 700 0.9rem/1 var(--font-mono);
-  text-decoration: none;
-  padding: 0.65rem 0.9rem;
-  transition:
-    translate 160ms ease,
-    border-color 160ms ease,
-    background-color 160ms ease,
-    color 160ms ease;
-}
-
 .url-loader .action-button {
   align-self: end;
   min-height: var(--control-height);
   height: var(--control-height);
   padding-block: 0;
-}
-
-.action-button:not(:disabled):not(.disabled):hover {
-  translate: 0 -0.1rem;
-  border-color: var(--foreground0);
-  background: var(--foreground0);
-  color: var(--background0);
-}
-
-.action-button:disabled,
-.action-button.disabled {
-  opacity: 0.48;
-  pointer-events: none;
 }
 
 .studio-grid {
@@ -320,13 +276,6 @@ input[type='url']::placeholder {
   top: -0.5rem;
   left: -0.5rem;
   cursor: nwse-resize;
-}
-
-.panel-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  align-items: center;
 }
 
 .editor-actions {
