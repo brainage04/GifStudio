@@ -100,6 +100,7 @@ for (const direction of resizeDirections) {
 let overlayFile: File | null = null;
 let overlayPreviewUrl: string | null = null;
 let baseFile: File | null = null;
+let pasteTarget: HTMLDivElement = dropzone;
 let basePreviewUrl: string | null = null;
 let resultUrl: string | null = null;
 let overlayNaturalWidth = 0;
@@ -370,7 +371,7 @@ function scheduleRender(delay = 250) {
   }, delay);
 }
 
-const handleBaseFiles = (files: FileList | null) => {
+const handleBaseFiles = (files: File[] | FileList | null) => {
   const file = files?.[0];
   if (!file) {
     return;
@@ -470,6 +471,33 @@ const setOverlayBlob = (blob: Blob, filename: string) => {
   const file = new File([blob], filename || 'overlay-image', {
     type: blob.type || 'image/png',
   });
+  handleOverlayFiles([file]);
+};
+
+const handlePaste = (event: ClipboardEvent) => {
+  const item = Array.from(event.clipboardData?.items ?? []).find(
+    (entry) => entry.kind === 'file' && entry.type.startsWith('image/'),
+  );
+  const clipboardFile = item?.getAsFile();
+  if (!clipboardFile) {
+    return;
+  }
+
+  event.preventDefault();
+  const target = pasteTarget;
+  target.classList.add('is-dragging');
+  window.setTimeout(() => target.classList.remove('is-dragging'), 600);
+
+  const file = clipboardFile.name
+    ? clipboardFile
+    : new File([clipboardFile], `pasted-image.${clipboardFile.type.split('/')[1] || 'png'}`, {
+        type: clipboardFile.type,
+      });
+
+  if (target === baseDropzone) {
+    handleBaseFiles([file]);
+    return;
+  }
   handleOverlayFiles([file]);
 };
 
@@ -702,6 +730,16 @@ for (const eventName of ['dragleave', 'drop']) {
 }
 
 dropzone.addEventListener('drop', (event) => handleOverlayFiles(event.dataTransfer?.files ?? null));
+
+for (const zone of [baseDropzone, dropzone]) {
+  for (const eventName of ['pointerenter', 'pointerdown', 'focusin']) {
+    zone.addEventListener(eventName, () => {
+      pasteTarget = zone;
+    });
+  }
+}
+
+document.addEventListener('paste', handlePaste);
 overlayUrlLoadButton.addEventListener('click', loadOverlayFromUrl);
 overlayUrlInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
