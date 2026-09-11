@@ -2,6 +2,7 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import coreUrl from '@ffmpeg/core?url';
 import wasmUrl from '@ffmpeg/core/wasm?url';
+import { decodeAnimationFrames } from '../lib/decodedFrames';
 import { GifRenderer } from '../lib/GifRenderer';
 
 const appBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/`;
@@ -37,6 +38,7 @@ const overlayImage = requireElement('overlay-image', HTMLImageElement);
 const handlesToggle = requireElement('handles-toggle', HTMLInputElement);
 const statusText = requireElement('status', HTMLParagraphElement);
 const downloadLink = requireElement('download-link', HTMLAnchorElement);
+const downloadButton = requireElement('download-button', HTMLButtonElement);
 const xInput = requireElement('x-input', HTMLInputElement);
 const yInput = requireElement('y-input', HTMLInputElement);
 const widthInput = requireElement('width-input', HTMLInputElement);
@@ -111,7 +113,17 @@ let renderController: AbortController | null = null;
 let renderSequence = 0;
 let baseFetchController: AbortController | null = null;
 let overlayFetchController: AbortController | null = null;
-const gifRenderer = new GifRenderer(new FFmpeg(), { coreURL: coreUrl, wasmURL: wasmUrl });
+const ffmpeg = new FFmpeg();
+const gifRenderer = new GifRenderer(ffmpeg, { coreURL: coreUrl, wasmURL: wasmUrl });
+let lastFfmpegLog = '';
+const defaultBaseSrc = `${appBase}assets/base/woman_is_talking.gif`;
+
+ffmpeg.on('log', ({ message }) => {
+  const line = message.trim();
+  if (line) {
+    lastFfmpegLog = `${lastFfmpegLog} ${line}`.trim().slice(-400);
+  }
+});
 
 const setStatus = (message: string) => {
   statusText.textContent = message;
@@ -124,21 +136,10 @@ const syncResizeHandles = () => {
 
 const loadingManagedImages = [basePreviewImage, overlayPreviewImage, stageBase, overlayImage] as const;
 
-const elementOffsetTop = (element: HTMLElement) => {
-  let top = 0;
-  let current: HTMLElement | null = element;
-
-  while (current) {
-    top += current.offsetTop;
-    current = current.offsetParent as HTMLElement | null;
-  }
-
-  return top;
-};
-
 const syncImageLoading = () => {
   for (const image of loadingManagedImages) {
-    image.loading = elementOffsetTop(image) <= window.innerHeight ? 'eager' : 'lazy';
+    // Viewport-relative, so a scrolled page still marks what the reader can actually see.
+    image.loading = image.getBoundingClientRect().top <= window.innerHeight ? 'eager' : 'lazy';
   }
 };
 
@@ -265,7 +266,7 @@ const setBaseFile = (file: File | null) => {
       URL.revokeObjectURL(basePreviewUrl);
       basePreviewUrl = null;
     }
-    setBasePreviewSource(`${appBase}assets/base/woman_is_talking.gif`);
+    setBasePreviewSource(defaultBaseSrc);
     baseSelectedFile.textContent = 'Using default base GIF.';
     if (overlayFile) {
       scheduleRender(0);
@@ -290,8 +291,9 @@ const showResult = (blob: Blob, filename: string) => {
   resultUrl = URL.createObjectURL(blob);
   downloadLink.href = resultUrl;
   downloadLink.download = filename;
-  downloadLink.classList.remove('disabled');
-  downloadLink.removeAttribute('aria-disabled');
+  downloadButton.disabled = false;
+  downloadButton.classList.remove('disabled');
+  downloadButton.removeAttribute('aria-disabled');
 };
 
 const resetResult = () => {
@@ -301,8 +303,9 @@ const resetResult = () => {
   }
 
   downloadLink.removeAttribute('href');
-  downloadLink.classList.add('disabled');
-  downloadLink.setAttribute('aria-disabled', 'true');
+  downloadButton.disabled = true;
+  downloadButton.classList.add('disabled');
+  downloadButton.setAttribute('aria-disabled', 'true');
 };
 
 const cancelScheduledRender = () => {
@@ -333,17 +336,58 @@ const renderGif = async () => {
     setStatus('Rendering GIF in this browser...');
     let activeBaseFile = baseFile;
     if (!activeBaseFile) {
-      const response = await fetch(`${appBase}assets/base/woman_is_talking.gif`);
+      const response = await fetch(defaultBaseSrc);
       if (!response.ok) throw new Error('Default base GIF could not be loaded.');
       activeBaseFile = new File([await response.blob()], 'woman_is_talking.gif', { type: 'image/gif' });
     }
 
-    const data = await gifRenderer.render({
-      id: requestId,
-      base: { name: activeBaseFile.name, data: await fetchFile(activeBaseFile) },
-      overlay: { name: activeOverlayFile.name, data: await fetchFile(activeOverlayFile) },
-      filterGraph: `[1:v]scale=${widthInput.value}:${heightInput.value}[overlay];[0:v][overlay]overlay=${xInput.value}:${yInput.value},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`,
-    });
+    const filterGraph = `[1:v]scale=${widthInput.value}:${heightInput.value}[overlay];[0:v][overlay]overlay=${xInput.value}:${yInput.value},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`;
+
+    lastFfmpegLog = '';
+    let data: Uint8Array | string;
+    try {
+      data = await gifRenderer.render({
+        id: requestId,
+        base: { name: activeBaseFile.name, data: await fetchFile(activeBaseFile) },
+        // FFmpeg transfers the buffer to its worker, so every attempt reads the bytes again.
+        overlay: { name: activeOverlayFile.name, data: await fetchFile(activeOverlayFile) },
+        filterGraph,
+      });
+    } catch (error) {
+      // FFmpeg's core cannot open every image the browser can (animated WebP, AVIF); hand it frames.
+      const decoded = await decodeAnimationFrames(activeBaseFile);
+      const firstFrame = decoded?.frames[0];
+      if (!decoded || !firstFrame || controller.signal.aborted) {
+        throw error;
+      }
+
+      setStatus('Converting this base animation for the browser renderer...');
+      const frameName = (index: number) => `frame-${requestId}-${String(index).padStart(4, '0')}.png`;
+      lastFfmpegLog = '';
+
+      try {
+        data = await gifRenderer.render({
+          id: requestId,
+          base: {
+            name: `frame-${requestId}-%04d.png`,
+            writePath: frameName(0),
+            data: firstFrame.data,
+          },
+          overlay: { name: activeOverlayFile.name, data: await fetchFile(activeOverlayFile) },
+          filterGraph,
+          inputArgs: {
+            base: ['-f', 'image2', '-framerate', String(decoded.framerate), '-start_number', '0'],
+          },
+          extraFiles: decoded.frames.slice(1).map((frame, index) => ({ name: frameName(index + 1), data: frame.data })),
+        });
+      } catch (retryError) {
+        throw new Error(
+          `The browser could not convert this base either. ${errorMessage(retryError, 'Render failed.')}`,
+          { cause: retryError },
+        );
+      }
+    }
+
     if (requestId !== renderSequence || controller.signal.aborted) return;
     const gifBytes = data instanceof Uint8Array ? new Uint8Array(data) : new TextEncoder().encode(data);
     const baseStem = activeBaseFile.name.replace(/\.[^.]+$/, '') || 'base';
@@ -351,7 +395,13 @@ const renderGif = async () => {
     setStatus('');
   } catch (error) {
     if (!isAbortError(error)) {
-      setStatus(errorMessage(error, 'Render failed in this browser.'));
+      const message = errorMessage(error, 'Render failed in this browser.');
+      const detail = lastFfmpegLog
+        .split(/[\r\n]+/)
+        .map((line) => line.trim())
+        .filter((line) => line && !/^Last message repeated/.test(line))
+        .pop();
+      setStatus(detail ? `${message} ${detail.slice(0, 200)}` : message);
     }
   } finally {
     if (renderController === controller) {
@@ -697,6 +747,17 @@ const endPointerInteraction = (event: PointerEvent) => {
 };
 
 baseFileInput.addEventListener('change', () => handleBaseFiles(baseFileInput.files));
+downloadButton.addEventListener('click', () => {
+  if (downloadLink.href) {
+    downloadLink.click();
+  }
+});
+basePreviewImage.addEventListener('error', () => {
+  setStatus('That base file could not be decoded by this browser.');
+});
+overlayPreviewImage.addEventListener('error', () => {
+  setStatus('That overlay file could not be decoded by this browser.');
+});
 
 for (const eventName of ['dragenter', 'dragover']) {
   baseDropzone.addEventListener(eventName, (event) => {
@@ -784,6 +845,7 @@ window.addEventListener('resize', () => {
   syncPlacementPreview();
   queueImageLoadingSync();
 });
+window.addEventListener('scroll', queueImageLoadingSync, { passive: true });
 baseUrlLoadButton.addEventListener('click', loadBaseFromUrl);
 baseUrlInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {

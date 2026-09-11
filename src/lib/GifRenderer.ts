@@ -3,9 +3,11 @@ import type { FFmpeg, FFMessageLoadConfig, FileData } from '@ffmpeg/ffmpeg';
 export type FfmpegClient = Pick<FFmpeg, 'deleteFile' | 'exec' | 'load' | 'readFile' | 'writeFile'>;
 
 export interface GifRenderSource {
-  /** Source filename; its extension tells FFmpeg which demuxer to prefer. */
+  /** Filename FFmpeg opens; its extension tells FFmpeg which demuxer to prefer. */
   name: string;
   data: FileData;
+  /** MEMFS path for `data`, when FFmpeg must open something other than the written file (e.g. an image2 pattern). */
+  writePath?: string;
 }
 
 export interface GifRenderInput {
@@ -14,6 +16,10 @@ export interface GifRenderInput {
   overlay: GifRenderSource;
   filterGraph: string;
   loop?: number;
+  /** Extra MEMFS files the inputs reference, written before exec and deleted after (e.g. a PNG frame sequence). */
+  extraFiles?: GifRenderSource[];
+  /** Options inserted before each `-i` for inputs that need them (e.g. `-framerate` on a frame sequence). */
+  inputArgs?: { base?: readonly string[]; overlay?: readonly string[] };
 }
 
 export class GifRenderer {
@@ -30,22 +36,32 @@ export class GifRenderer {
     await this.#ensureReady();
   }
 
-  async render({ id, base, overlay, filterGraph, loop = 0 }: GifRenderInput) {
+  async render({ id, base, overlay, filterGraph, loop = 0, extraFiles = [], inputArgs = {} }: GifRenderInput) {
     await this.#ensureReady();
 
     // FFmpeg picks its demuxer from content first, but a matching extension keeps the choice explicit.
     const baseExtension = (/\.([a-z0-9]+)$/i.exec(base.name)?.[1] ?? 'bin').toLowerCase();
     const overlayExtension = (/\.([a-z0-9]+)$/i.exec(overlay.name)?.[1] ?? 'bin').toLowerCase();
-    const baseName = `base-${id}.${baseExtension}`;
-    const overlayName = `overlay-${id}.${overlayExtension}`;
+    const basePath = base.writePath ?? `base-${id}.${baseExtension}`;
+    const overlayPath = overlay.writePath ?? `overlay-${id}.${overlayExtension}`;
+    // Without an explicit path FFmpeg reads what we wrote; with one it reads `name` (an image2 pattern, say).
+    const baseName = base.writePath ? base.name : basePath;
+    const overlayName = overlay.writePath ? overlay.name : overlayPath;
     const outputName = `rendered-${id}.gif`;
 
     try {
-      await this.#ffmpeg.writeFile(baseName, base.data);
-      await this.#ffmpeg.writeFile(overlayName, overlay.data);
-      await this.#ffmpeg.exec([
+      await this.#ffmpeg.writeFile(basePath, base.data);
+      await this.#ffmpeg.writeFile(overlayPath, overlay.data);
+      for (const file of extraFiles) {
+        await this.#ffmpeg.writeFile(file.name, file.data);
+      }
+
+      // A rejected input leaves a zero-byte output behind instead of rejecting, so both signals matter.
+      const exitCode = await this.#ffmpeg.exec([
+        ...(inputArgs.base ?? []),
         '-i',
         baseName,
+        ...(inputArgs.overlay ?? []),
         '-i',
         overlayName,
         '-filter_complex',
@@ -54,13 +70,21 @@ export class GifRenderer {
         String(loop),
         outputName,
       ]);
-      return await this.#ffmpeg.readFile(outputName);
+      if (exitCode !== 0) {
+        throw new Error(`FFmpeg exited with code ${exitCode}.`);
+      }
+
+      const output = await this.#ffmpeg.readFile(outputName);
+      if (!output.length) {
+        throw new Error('FFmpeg wrote an empty GIF.');
+      }
+      return output;
     } finally {
-      await Promise.allSettled([
-        this.#ffmpeg.deleteFile(baseName),
-        this.#ffmpeg.deleteFile(overlayName),
-        this.#ffmpeg.deleteFile(outputName),
-      ]);
+      await Promise.allSettled(
+        [basePath, overlayPath, ...extraFiles.map((file) => file.name), outputName].map((path) =>
+          this.#ffmpeg.deleteFile(path),
+        ),
+      );
     }
   }
 

@@ -156,7 +156,15 @@ const overlayImage = withBase('/pfp.webp');
         <input id="handles-toggle" type="checkbox" checked />
         Resize handles
       </label>
-      <a class="action-button download-button disabled" id="download-link" aria-disabled="true">Download GIF</a>
+      <button
+        class="action-button download-button disabled"
+        id="download-button"
+        type="button"
+        is-="button"
+        aria-disabled="true"
+        disabled>Download GIF</button
+      >
+      <a id="download-link" hidden aria-hidden="true" tabindex="-1"></a>
     </div>
 
     <p class="status" id="status" aria-live="polite" hidden></p>
