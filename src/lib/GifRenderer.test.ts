@@ -97,4 +97,108 @@ describe('GifRenderer', () => {
     ).resolves.toEqual(new Uint8Array([71, 73, 70]));
     expect(deletedPaths).toEqual(['base-11.jpeg', 'overlay-11.bin', 'rendered-11.gif']);
   });
+
+  it('fails the render when FFmpeg exits non-zero, leaving no result behind', async () => {
+    ffmpeg.exec = vi.fn(async () => 1);
+    ffmpeg.readFile = vi.fn(async () => new Uint8Array());
+    const renderer = new GifRenderer(ffmpeg, { coreURL: '/core.js', wasmURL: '/core.wasm' });
+
+    await expect(
+      renderer.render({
+        id: 21,
+        base: { name: 'base.webp', data: new Uint8Array([1]) },
+        overlay: { name: 'overlay.png', data: new Uint8Array([2]) },
+        filterGraph: 'overlay',
+      }),
+    ).rejects.toThrow('FFmpeg exited with code 1.');
+    expect(deletedPaths).toEqual(['base-21.webp', 'overlay-21.png', 'rendered-21.gif']);
+  });
+
+  it('fails the render when FFmpeg writes a zero-byte output', async () => {
+    ffmpeg.readFile = vi.fn(async () => new Uint8Array());
+    const renderer = new GifRenderer(ffmpeg, { coreURL: '/core.js', wasmURL: '/core.wasm' });
+
+    await expect(
+      renderer.render({
+        id: 22,
+        base: { name: 'base.gif', data: new Uint8Array([1]) },
+        overlay: { name: 'overlay.png', data: new Uint8Array([2]) },
+        filterGraph: 'overlay',
+      }),
+    ).rejects.toThrow('FFmpeg wrote an empty GIF.');
+    expect(deletedPaths).toEqual(['base-22.gif', 'overlay-22.png', 'rendered-22.gif']);
+  });
+
+  it('writes frame-sequence inputs and applies per-input arguments', async () => {
+    const renderer = new GifRenderer(ffmpeg, { coreURL: '/core.js', wasmURL: '/core.wasm' });
+
+    await renderer.render({
+      id: 5,
+      base: { name: 'frames-5.txt', data: 'ffconcat version 1.0' },
+      overlay: { name: 'overlay.png', data: new Uint8Array([2]) },
+      filterGraph: 'overlay',
+      inputArgs: { base: ['-f', 'concat', '-safe', '0'] },
+      extraFiles: [
+        { name: 'frame-5-0000.png', data: new Uint8Array([3]) },
+        { name: 'frame-5-0001.png', data: new Uint8Array([4]) },
+      ],
+    });
+
+    expect(ffmpeg.writeFile).toHaveBeenCalledWith('frame-5-0001.png', new Uint8Array([4]));
+    expect(ffmpeg.exec).toHaveBeenCalledWith([
+      '-f',
+      'concat',
+      '-safe',
+      '0',
+      '-i',
+      'base-5.txt',
+      '-i',
+      'overlay-5.png',
+      '-filter_complex',
+      'overlay',
+      '-loop',
+      '0',
+      'rendered-5.gif',
+    ]);
+    expect(deletedPaths).toEqual([
+      'base-5.txt',
+      'overlay-5.png',
+      'frame-5-0000.png',
+      'frame-5-0001.png',
+      'rendered-5.gif',
+    ]);
+  });
+
+  it('writes a sequence frame to its own path while FFmpeg opens the pattern', async () => {
+    const renderer = new GifRenderer(ffmpeg, { coreURL: '/core.js', wasmURL: '/core.wasm' });
+
+    await renderer.render({
+      id: 6,
+      base: { name: 'frame-6-%04d.png', writePath: 'frame-6-0000.png', data: new Uint8Array([1]) },
+      overlay: { name: 'overlay.gif', data: new Uint8Array([2]) },
+      filterGraph: 'overlay',
+      inputArgs: { base: ['-f', 'image2', '-framerate', '10', '-start_number', '0'] },
+      extraFiles: [{ name: 'frame-6-0001.png', data: new Uint8Array([3]) }],
+    });
+
+    expect(ffmpeg.writeFile).toHaveBeenCalledWith('frame-6-0000.png', new Uint8Array([1]));
+    expect(ffmpeg.exec).toHaveBeenCalledWith([
+      '-f',
+      'image2',
+      '-framerate',
+      '10',
+      '-start_number',
+      '0',
+      '-i',
+      'frame-6-%04d.png',
+      '-i',
+      'overlay-6.gif',
+      '-filter_complex',
+      'overlay',
+      '-loop',
+      '0',
+      'rendered-6.gif',
+    ]);
+    expect(deletedPaths).toEqual(['frame-6-0000.png', 'overlay-6.gif', 'frame-6-0001.png', 'rendered-6.gif']);
+  });
 });
