@@ -1,6 +1,6 @@
 # GifStudio
 
-Browser-based GIF compositor for selecting a base animation, positioning an image overlay, rendering with FFmpeg WebAssembly, and downloading the result without uploading source files.
+Browser-based GIF compositor for selecting a base GIF or image, positioning a GIF or image overlay, rendering with FFmpeg WebAssembly, and downloading the result without uploading source files.
 
 ## Requirements
 

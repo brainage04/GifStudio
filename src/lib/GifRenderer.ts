@@ -2,10 +2,16 @@ import type { FFmpeg, FFMessageLoadConfig, FileData } from '@ffmpeg/ffmpeg';
 
 export type FfmpegClient = Pick<FFmpeg, 'deleteFile' | 'exec' | 'load' | 'readFile' | 'writeFile'>;
 
+export interface GifRenderSource {
+  /** Source filename; its extension tells FFmpeg which demuxer to prefer. */
+  name: string;
+  data: FileData;
+}
+
 export interface GifRenderInput {
   id: number;
-  baseGif: FileData;
-  overlayImage: FileData;
+  base: GifRenderSource;
+  overlay: GifRenderSource;
   filterGraph: string;
   loop?: number;
 }
@@ -24,19 +30,22 @@ export class GifRenderer {
     await this.#ensureReady();
   }
 
-  async render({ id, baseGif, overlayImage, filterGraph, loop = 0 }: GifRenderInput) {
+  async render({ id, base, overlay, filterGraph, loop = 0 }: GifRenderInput) {
     await this.#ensureReady();
 
-    const inputName = `base-${id}.gif`;
-    const overlayName = `overlay-${id}`;
+    // FFmpeg picks its demuxer from content first, but a matching extension keeps the choice explicit.
+    const baseExtension = (/\.([a-z0-9]+)$/i.exec(base.name)?.[1] ?? 'bin').toLowerCase();
+    const overlayExtension = (/\.([a-z0-9]+)$/i.exec(overlay.name)?.[1] ?? 'bin').toLowerCase();
+    const baseName = `base-${id}.${baseExtension}`;
+    const overlayName = `overlay-${id}.${overlayExtension}`;
     const outputName = `rendered-${id}.gif`;
 
     try {
-      await this.#ffmpeg.writeFile(inputName, baseGif);
-      await this.#ffmpeg.writeFile(overlayName, overlayImage);
+      await this.#ffmpeg.writeFile(baseName, base.data);
+      await this.#ffmpeg.writeFile(overlayName, overlay.data);
       await this.#ffmpeg.exec([
         '-i',
-        inputName,
+        baseName,
         '-i',
         overlayName,
         '-filter_complex',
@@ -48,7 +57,7 @@ export class GifRenderer {
       return await this.#ffmpeg.readFile(outputName);
     } finally {
       await Promise.allSettled([
-        this.#ffmpeg.deleteFile(inputName),
+        this.#ffmpeg.deleteFile(baseName),
         this.#ffmpeg.deleteFile(overlayName),
         this.#ffmpeg.deleteFile(outputName),
       ]);

@@ -44,19 +44,19 @@ describe('GifRenderer', () => {
 
     await renderer.render({
       id: 13,
-      baseGif,
-      overlayImage,
+      base: { name: 'woman_is_talking.gif', data: baseGif },
+      overlay: { name: 'Portrait.PNG', data: overlayImage },
       filterGraph: '[0:v][1:v]overlay=4:8',
       loop: 2,
     });
 
     expect(ffmpeg.writeFile).toHaveBeenNthCalledWith(1, 'base-13.gif', baseGif);
-    expect(ffmpeg.writeFile).toHaveBeenNthCalledWith(2, 'overlay-13', overlayImage);
+    expect(ffmpeg.writeFile).toHaveBeenNthCalledWith(2, 'overlay-13.png', overlayImage);
     expect(ffmpeg.exec).toHaveBeenCalledWith([
       '-i',
       'base-13.gif',
       '-i',
-      'overlay-13',
+      'overlay-13.png',
       '-filter_complex',
       '[0:v][1:v]overlay=4:8',
       '-loop',
@@ -75,13 +75,13 @@ describe('GifRenderer', () => {
     await expect(
       renderer.render({
         id: 7,
-        baseGif: new Uint8Array([1]),
-        overlayImage: new Uint8Array([2]),
+        base: { name: 'base.gif', data: new Uint8Array([1]) },
+        overlay: { name: 'overlay.webp', data: new Uint8Array([2]) },
         filterGraph: 'overlay',
       }),
     ).rejects.toThrow('encode failed');
 
-    expect(deletedPaths).toEqual(['base-7.gif', 'overlay-7', 'rendered-7.gif']);
+    expect(deletedPaths).toEqual(['base-7.gif', 'overlay-7.webp', 'rendered-7.gif']);
   });
 
   it('returns rendered bytes and cleans files after a successful render', async () => {
@@ -90,11 +90,11 @@ describe('GifRenderer', () => {
     await expect(
       renderer.render({
         id: 11,
-        baseGif: new Uint8Array([1]),
-        overlayImage: new Uint8Array([2]),
+        base: { name: 'photo.jpeg', data: new Uint8Array([1]) },
+        overlay: { name: 'overlay', data: new Uint8Array([2]) },
         filterGraph: 'overlay',
       }),
     ).resolves.toEqual(new Uint8Array([71, 73, 70]));
-    expect(deletedPaths).toEqual(['base-11.gif', 'overlay-11', 'rendered-11.gif']);
+    expect(deletedPaths).toEqual(['base-11.jpeg', 'overlay-11.bin', 'rendered-11.gif']);
   });
 });

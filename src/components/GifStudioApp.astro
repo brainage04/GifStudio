@@ -8,22 +8,27 @@ const overlayImage = withBase('/pfp.webp');
 
 <div class="studio-grid">
   <div class="studio-assets">
-    <TerminalPanel title="Base GIF" class="asset-panel">
+    <TerminalPanel title="Base GIF or image" class="asset-panel">
       <div class="panel-copy">
         <div
           class="dropzone combo-dropzone"
           id="base-dropzone"
           role="group"
-          aria-label="Load base GIF from file or URL"
+          aria-label="Load base GIF or image from file or URL"
         >
           <label class="dropzone-prompt" for="base-file-input">
-            <span><strong>Drop a GIF</strong>or click to choose a base animation.</span>
-            <input class="sr-only" id="base-file-input" type="file" accept=".gif,image/gif" />
+            <span><strong>Drop a GIF or image</strong>or click to choose a base animation or still.</span>
+            <input
+              class="sr-only"
+              id="base-file-input"
+              type="file"
+              accept=".gif,.png,.jpg,.jpeg,.webp,image/gif,image/png,image/jpeg,image/webp"
+            />
           </label>
 
-          <div class="url-loader" aria-label="Load base GIF from URL">
+          <div class="url-loader" aria-label="Load base GIF or image from URL">
             <label class="field" for="base-url-input">
-              Base GIF URL
+              Base GIF or image URL
               <input
                 id="base-url-input"
                 type="url"
@@ -41,7 +46,7 @@ const overlayImage = withBase('/pfp.webp');
           <img
             id="base-preview-image"
             src={baseGif}
-            alt="Base woman is talking GIF"
+            alt="Base GIF or image preview"
             width="400"
             height="218"
             data-managed-loading
@@ -50,16 +55,16 @@ const overlayImage = withBase('/pfp.webp');
       </div>
     </TerminalPanel>
 
-    <TerminalPanel title="Overlay image" class="asset-panel">
+    <TerminalPanel title="Overlay GIF or image" class="asset-panel">
       <div class="panel-copy">
         <div
           class="dropzone combo-dropzone"
           id="dropzone"
           role="group"
-          aria-label="Load overlay image from file or URL"
+          aria-label="Load overlay GIF or image from file or URL"
         >
           <label class="dropzone-prompt" for="file-input">
-            <span><strong>Drop an image</strong>or click to choose a PNG, JPEG, GIF, or WebP overlay.</span>
+            <span><strong>Drop a GIF or image</strong>or click to choose a PNG, JPEG, GIF, or WebP overlay.</span>
             <input
               class="sr-only"
               id="file-input"
@@ -68,9 +73,9 @@ const overlayImage = withBase('/pfp.webp');
             />
           </label>
 
-          <div class="url-loader" aria-label="Load overlay image from URL">
+          <div class="url-loader" aria-label="Load overlay GIF or image from URL">
             <label class="field" for="overlay-url-input">
-              Overlay image URL
+              Overlay GIF or image URL
               <input
                 id="overlay-url-input"
                 type="url"
@@ -105,7 +110,7 @@ const overlayImage = withBase('/pfp.webp');
           class="stage-base"
           id="stage-base"
           src={baseGif}
-          alt="Base GIF editor preview"
+          alt="Base GIF or image editor preview"
           width="400"
           height="218"
           draggable="false"

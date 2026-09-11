@@ -44,6 +44,11 @@ const heightInput = requireElement('height-input', HTMLInputElement);
 
 const MIN_OVERLAY_DIMENSION = 16;
 const MAX_OVERLAY_SCALE = 4;
+const supportedImageName = /\.(gif|jpe?g|png|webp)$/i;
+
+// Dropped files and CORS responses do not always carry a MIME type, so the filename is a fallback signal.
+const isSupportedImage = (file: File) => file.type.startsWith('image/') || supportedImageName.test(file.name);
+
 const resizeDirections = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const;
 type ResizeDirection = (typeof resizeDirections)[number];
 
@@ -94,7 +99,7 @@ for (const direction of resizeDirections) {
 
 let overlayFile: File | null = null;
 let overlayPreviewUrl: string | null = null;
-let baseGifFile: File | null = null;
+let baseFile: File | null = null;
 let basePreviewUrl: string | null = null;
 let resultUrl: string | null = null;
 let overlayNaturalWidth = 0;
@@ -251,10 +256,10 @@ const setBasePreviewSource = (src: string) => {
   queueImageLoadingSync();
 };
 
-const setBaseGifFile = (file: File | null) => {
-  baseGifFile = file;
+const setBaseFile = (file: File | null) => {
+  baseFile = file;
 
-  if (!baseGifFile) {
+  if (!baseFile) {
     if (basePreviewUrl) {
       URL.revokeObjectURL(basePreviewUrl);
       basePreviewUrl = null;
@@ -271,19 +276,19 @@ const setBaseGifFile = (file: File | null) => {
     URL.revokeObjectURL(basePreviewUrl);
   }
 
-  basePreviewUrl = URL.createObjectURL(baseGifFile);
+  basePreviewUrl = URL.createObjectURL(baseFile);
   setBasePreviewSource(basePreviewUrl);
-  baseSelectedFile.textContent = `${baseGifFile.name} • ${Math.round(baseGifFile.size / 1024)} KB`;
+  baseSelectedFile.textContent = `${baseFile.name} • ${Math.round(baseFile.size / 1024)} KB`;
 };
 
-const showResult = (blob: Blob) => {
+const showResult = (blob: Blob, filename: string) => {
   if (resultUrl) {
     URL.revokeObjectURL(resultUrl);
   }
 
   resultUrl = URL.createObjectURL(blob);
   downloadLink.href = resultUrl;
-  downloadLink.download = 'woman_is_talking_overlay.gif';
+  downloadLink.download = filename;
   downloadLink.classList.remove('disabled');
   downloadLink.removeAttribute('aria-disabled');
 };
@@ -325,22 +330,23 @@ const renderGif = async () => {
     if (controller.signal.aborted) return;
 
     setStatus('Rendering GIF in this browser...');
-    let input = baseGifFile;
-    if (!input) {
+    let activeBaseFile = baseFile;
+    if (!activeBaseFile) {
       const response = await fetch(`${appBase}assets/base/woman_is_talking.gif`);
       if (!response.ok) throw new Error('Default base GIF could not be loaded.');
-      input = new File([await response.blob()], 'woman_is_talking.gif', { type: 'image/gif' });
+      activeBaseFile = new File([await response.blob()], 'woman_is_talking.gif', { type: 'image/gif' });
     }
 
     const data = await gifRenderer.render({
       id: requestId,
-      baseGif: await fetchFile(input),
-      overlayImage: await fetchFile(activeOverlayFile),
+      base: { name: activeBaseFile.name, data: await fetchFile(activeBaseFile) },
+      overlay: { name: activeOverlayFile.name, data: await fetchFile(activeOverlayFile) },
       filterGraph: `[1:v]scale=${widthInput.value}:${heightInput.value}[overlay];[0:v][overlay]overlay=${xInput.value}:${yInput.value},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`,
     });
     if (requestId !== renderSequence || controller.signal.aborted) return;
     const gifBytes = data instanceof Uint8Array ? new Uint8Array(data) : new TextEncoder().encode(data);
-    showResult(new Blob([gifBytes], { type: 'image/gif' }));
+    const baseStem = activeBaseFile.name.replace(/\.[^.]+$/, '') || 'base';
+    showResult(new Blob([gifBytes], { type: 'image/gif' }), `${baseStem}_overlay.gif`);
     setStatus('');
   } catch (error) {
     if (!isAbortError(error)) {
@@ -370,14 +376,13 @@ const handleBaseFiles = (files: FileList | null) => {
     return;
   }
 
-  const looksLikeGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
-  if (!looksLikeGif) {
-    setStatus('That base file is not a GIF.');
+  if (!isSupportedImage(file)) {
+    setStatus('That base file is not a GIF or image.');
     return;
   }
 
   resetResult();
-  setBaseGifFile(file);
+  setBaseFile(file);
   setStatus('');
 };
 
@@ -418,48 +423,42 @@ const fetchRemoteFile = async (value: string, accept: string, fallback: string, 
   });
 };
 
-const loadBaseGifFromUrl = async () => {
+const loadBaseFromUrl = async () => {
   const url = baseUrlInput.value.trim();
   if (!url) {
-    setStatus('Enter a GIF URL first.');
+    setStatus('Enter a GIF or image URL first.');
     return;
   }
 
   baseFetchController?.abort();
   baseFetchController = new AbortController();
   baseUrlLoadButton.disabled = true;
-  setStatus('Loading base GIF...');
+  setStatus('Loading base GIF or image...');
 
   try {
-    const file = await fetchRemoteFile(
-      url,
-      'image/gif,image/*;q=0.8,*/*;q=0.1',
-      'base.gif',
-      baseFetchController.signal,
-    );
-    if (file.type !== 'image/gif' && !file.name.toLowerCase().endsWith('.gif')) {
-      throw new Error('URL did not return a GIF.');
+    const file = await fetchRemoteFile(url, 'image/*,*/*;q=0.1', 'base', baseFetchController.signal);
+    if (!isSupportedImage(file)) {
+      throw new Error('URL did not return a GIF or image.');
     }
     resetResult();
-    setBaseGifFile(file);
+    setBaseFile(file);
     setStatus('');
   } catch (error) {
-    if (!isAbortError(error)) setStatus(errorMessage(error, 'Base GIF fetch failed.'));
+    if (!isAbortError(error)) setStatus(errorMessage(error, 'Base fetch failed.'));
   } finally {
     baseFetchController = null;
     baseUrlLoadButton.disabled = false;
   }
 };
 
-const handleFiles = (files: File[] | FileList | null) => {
+const handleOverlayFiles = (files: File[] | FileList | null) => {
   const file = files?.[0];
   if (!file) {
     return;
   }
 
-  const knownImageName = /\.(gif|jpe?g|png|webp)$/i.test(file.name);
-  if (!file.type.startsWith('image/') && !knownImageName) {
-    setStatus('That file is not an image.');
+  if (!isSupportedImage(file)) {
+    setStatus('That file is not a GIF or image.');
     return;
   }
 
@@ -471,30 +470,30 @@ const setOverlayBlob = (blob: Blob, filename: string) => {
   const file = new File([blob], filename || 'overlay-image', {
     type: blob.type || 'image/png',
   });
-  handleFiles([file]);
+  handleOverlayFiles([file]);
 };
 
-const loadOverlayImageFromUrl = async () => {
+const loadOverlayFromUrl = async () => {
   const url = overlayUrlInput.value.trim();
   if (!url) {
-    setStatus('Enter an image URL first.');
+    setStatus('Enter a GIF or image URL first.');
     return;
   }
 
   overlayFetchController?.abort();
   overlayFetchController = new AbortController();
   overlayUrlLoadButton.disabled = true;
-  setStatus('Loading overlay image...');
+  setStatus('Loading overlay GIF or image...');
 
   try {
     const file = await fetchRemoteFile(url, 'image/*,*/*;q=0.1', 'overlay-image', overlayFetchController.signal);
-    if (!file.type.startsWith('image/') && !/\.(gif|jpe?g|png|webp)$/i.test(file.name)) {
-      throw new Error('URL did not return a supported image.');
+    if (!isSupportedImage(file)) {
+      throw new Error('URL did not return a GIF or image.');
     }
     setOverlayFile(file);
     setStatus('');
   } catch (error) {
-    if (!isAbortError(error)) setStatus(errorMessage(error, 'Overlay image fetch failed.'));
+    if (!isAbortError(error)) setStatus(errorMessage(error, 'Overlay fetch failed.'));
   } finally {
     overlayFetchController = null;
     overlayUrlLoadButton.disabled = false;
@@ -686,7 +685,7 @@ for (const eventName of ['dragleave', 'drop']) {
 }
 
 baseDropzone.addEventListener('drop', (event) => handleBaseFiles(event.dataTransfer?.files ?? null));
-fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+fileInput.addEventListener('change', () => handleOverlayFiles(fileInput.files));
 
 for (const eventName of ['dragenter', 'dragover']) {
   dropzone.addEventListener(eventName, (event) => {
@@ -702,12 +701,12 @@ for (const eventName of ['dragleave', 'drop']) {
   });
 }
 
-dropzone.addEventListener('drop', (event) => handleFiles(event.dataTransfer?.files ?? null));
-overlayUrlLoadButton.addEventListener('click', loadOverlayImageFromUrl);
+dropzone.addEventListener('drop', (event) => handleOverlayFiles(event.dataTransfer?.files ?? null));
+overlayUrlLoadButton.addEventListener('click', loadOverlayFromUrl);
 overlayUrlInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
-    loadOverlayImageFromUrl();
+    loadOverlayFromUrl();
   }
 });
 
@@ -747,11 +746,11 @@ window.addEventListener('resize', () => {
   syncPlacementPreview();
   queueImageLoadingSync();
 });
-baseUrlLoadButton.addEventListener('click', loadBaseGifFromUrl);
+baseUrlLoadButton.addEventListener('click', loadBaseFromUrl);
 baseUrlInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
-    loadBaseGifFromUrl();
+    loadBaseFromUrl();
   }
 });
 handlesToggle.addEventListener('change', syncResizeHandles);
