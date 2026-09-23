@@ -1,9 +1,12 @@
 ---
 import TerminalPanel from '@brainage04/astro-shell/components/TerminalPanel.astro';
 import { withBase } from '@brainage04/astro-shell/withBase';
+import { MAX_OVERLAY_SCALE } from '../lib/placement';
 
 const baseGif = withBase('/assets/base/woman_is_talking.gif');
 const overlayImage = withBase('/pfp.webp');
+// The default overlay is 400px square; the script resets the limit to each overlay's own size.
+const overlayMax = 400 * MAX_OVERLAY_SCALE;
 ---
 
 <div class="studio-grid">
@@ -26,7 +29,7 @@ const overlayImage = withBase('/pfp.webp');
             />
           </label>
 
-          <div class="url-loader" aria-label="Load base GIF or image from URL">
+          <div class="url-loader" role="group" aria-label="Load base GIF or image from URL">
             <label class="field" for="base-url-input">
               Base GIF or image URL
               <input
@@ -37,11 +40,11 @@ const overlayImage = withBase('/pfp.webp');
                 placeholder="https://example.com/base.gif"
               />
             </label>
-            <button class="action-button" id="base-url-load-button" type="button" is-="button">Load</button>
+            <button class="action-button" id="base-url-load-button" type="button">Load</button>
           </div>
         </div>
 
-        <p class="selected-file" id="base-selected-file">Using default base GIF.</p>
+        <p class="selected-file" id="base-selected-file" aria-live="polite">Using default base GIF.</p>
         <div class="preview-frame">
           <img
             id="base-preview-image"
@@ -75,7 +78,7 @@ const overlayImage = withBase('/pfp.webp');
             />
           </label>
 
-          <div class="url-loader" aria-label="Load overlay GIF or image from URL">
+          <div class="url-loader" role="group" aria-label="Load overlay GIF or image from URL">
             <label class="field" for="overlay-url-input">
               Overlay GIF or image URL
               <input
@@ -86,11 +89,11 @@ const overlayImage = withBase('/pfp.webp');
                 placeholder="https://example.com/overlay.png"
               />
             </label>
-            <button class="action-button" id="overlay-url-load-button" type="button" is-="button">Load</button>
+            <button class="action-button" id="overlay-url-load-button" type="button">Load</button>
           </div>
         </div>
 
-        <p class="selected-file" id="selected-file">Using default overlay image.</p>
+        <p class="selected-file" id="selected-file" aria-live="polite">Using default overlay image.</p>
         <div class="preview-frame overlay-preview" id="overlay-preview" hidden>
           <img
             id="overlay-preview-image"
@@ -132,7 +135,7 @@ const overlayImage = withBase('/pfp.webp');
       </div>
     </div>
 
-    <div class="controls" aria-label="Overlay placement controls">
+    <div class="controls" role="group" aria-label="Overlay placement controls">
       <label for="x-input">
         X
         <input id="x-input" type="number" step="1" value="58" />
@@ -143,11 +146,11 @@ const overlayImage = withBase('/pfp.webp');
       </label>
       <label for="width-input">
         Width
-        <input id="width-input" type="number" min="1" step="1" value="120" />
+        <input id="width-input" type="number" min="1" max={overlayMax} step="1" value="120" />
       </label>
       <label for="height-input">
         Height
-        <input id="height-input" type="number" min="1" step="1" value="120" />
+        <input id="height-input" type="number" min="1" max={overlayMax} step="1" value="120" />
       </label>
     </div>
 
@@ -160,7 +163,6 @@ const overlayImage = withBase('/pfp.webp');
         class="action-button download-button disabled"
         id="download-button"
         type="button"
-        is-="button"
         aria-disabled="true"
         disabled>Download GIF</button
       >

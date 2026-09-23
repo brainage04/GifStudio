@@ -1,11 +1,11 @@
 ---
+import SiteLayout from '@brainage04/astro-shell/components/SiteLayout.astro';
 import GifStudioApp from '../components/GifStudioApp.astro';
-import SiteLayout from '../layouts/SiteLayout.astro';
 
 const description =
   'Overlay a GIF or image on a base GIF or image, position it in the browser, and download the rendered GIF.';
 ---
 
-<SiteLayout title="Home" description={description}>
+<SiteLayout description={description}>
   <GifStudioApp />
 </SiteLayout>

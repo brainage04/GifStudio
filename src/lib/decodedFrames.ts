@@ -7,16 +7,41 @@ export interface DecodedFrame {
 
 export interface DecodedAnimation {
   frames: DecodedFrame[];
-  /** Uniform rate approximating the source's per-frame delays, for sequence inputs. */
-  framerate: number;
+  /** Frames in the source; more than `frames.length` when the animation was truncated to `MAX_DECODED_FRAMES`. */
+  totalFrames: number;
 }
 
-const MAX_FRAMES = 240;
+/**
+ * Every decoded frame is held as PNG bytes here and again in FFmpeg's WebAssembly heap next to the
+ * rendered GIF, and that heap cannot grow past a few GB. A fixed cap keeps the fallback predictable
+ * where a byte budget would depend on how well each frame compresses; callers tell the reader when
+ * it truncates (`totalFrames > frames.length`).
+ */
+export const MAX_DECODED_FRAMES = 240;
 const FALLBACK_DURATION_MS = 100;
 const MIN_DURATION_MS = 20;
-const MIN_FRAMERATE = 2;
-const MAX_FRAMERATE = 50;
-const FALLBACK_FRAMERATE = 10;
+
+/**
+ * FFmpeg input for a decoded frame sequence that keeps every frame's own delay.
+ *
+ * The concat demuxer places each PNG at the running total of the `duration`s before it. Image inputs
+ * default to a 1/25 s time base, which would round delays to 40 ms steps, so each file is opened at
+ * 100 fps — the centisecond resolution GIF delays are stored in. The demuxer cannot express how long
+ * the last frame stays up, so it becomes the GIF muxer's `-final_delay` (in centiseconds).
+ */
+export const frameSequenceInput = (frames: readonly { name: string; durationMs: number }[]) => {
+  const centiseconds = frames.map(({ durationMs }) => Math.max(Math.round(durationMs / 10), 1));
+  const lines = ['ffconcat version 1.0'];
+  frames.forEach(({ name }, index) => {
+    lines.push(`file '${name}'`, 'option framerate 100', `duration ${((centiseconds[index] ?? 1) / 100).toFixed(2)}`);
+  });
+
+  return {
+    script: `${lines.join('\n')}\n`,
+    inputArgs: ['-f', 'concat', '-safe', '0'],
+    outputArgs: ['-final_delay', String(centiseconds.at(-1) ?? 1)],
+  };
+};
 
 /**
  * Decode an animation with the browser's own image pipeline.
@@ -26,9 +51,9 @@ const FALLBACK_FRAMERATE = 10;
  * which used to look like a successful render. Callers retry the render with this PNG frame
  * sequence, which also keeps each frame's original delay. A `null` result means the browser cannot
  * decode the file either, so the caller should surface the original FFmpeg failure instead of
- * pretending it recovered.
+ * pretending it recovered. Aborting `signal` rejects with its reason.
  */
-export const decodeAnimationFrames = async (file: File): Promise<DecodedAnimation | null> => {
+export const decodeAnimationFrames = async (file: File, signal?: AbortSignal): Promise<DecodedAnimation | null> => {
   if (typeof ImageDecoder === 'undefined' || typeof OffscreenCanvas === 'undefined') {
     return null;
   }
@@ -40,7 +65,8 @@ export const decodeAnimationFrames = async (file: File): Promise<DecodedAnimatio
   try {
     await decoder.completed;
     await decoder.tracks.ready;
-    const frameCount = Math.min(decoder.tracks.selectedTrack?.frameCount ?? 0, MAX_FRAMES);
+    const totalFrames = decoder.tracks.selectedTrack?.frameCount ?? 0;
+    const frameCount = Math.min(totalFrames, MAX_DECODED_FRAMES);
     if (!frameCount) {
       return null;
     }
@@ -64,6 +90,7 @@ export const decodeAnimationFrames = async (file: File): Promise<DecodedAnimatio
     let frame = first;
     for (let index = 0; index < frameCount; index += 1) {
       if (index > 0) {
+        signal?.throwIfAborted();
         frame = await decoder.decode({ frameIndex: index });
       }
       context.clearRect(0, 0, width, height);
@@ -77,14 +104,11 @@ export const decodeAnimationFrames = async (file: File): Promise<DecodedAnimatio
       });
     }
 
-    // Frame delays vary (GIF and WebP both allow it); a sequence input can only approximate them.
-    const sortedDurations = frames.map((frame) => frame.durationMs).sort((left, right) => left - right);
-    const medianDuration = sortedDurations[Math.floor(sortedDurations.length / 2)] ?? 0;
-    const framerate =
-      medianDuration > 0 ? Math.min(MAX_FRAMERATE, Math.max(MIN_FRAMERATE, 1000 / medianDuration)) : FALLBACK_FRAMERATE;
-
-    return { frames, framerate };
-  } catch {
+    return { frames, totalFrames };
+  } catch (error) {
+    if (signal?.aborted) {
+      throw error;
+    }
     return null;
   } finally {
     decoder.close();

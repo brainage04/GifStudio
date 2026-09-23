@@ -2,10 +2,9 @@ import type { SiteConfig } from '@brainage04/astro-shell/config';
 
 export const siteConfig = {
   siteName: 'GifStudio',
-  homeTitle: 'GifStudio',
   description: 'Browser-based GIF overlay renderer by brainage04.',
   navItems: [
-    { name: 'GifStudio', href: '/', match: '/', activeMode: 'exact' },
+    { name: 'GifStudio', href: '/' },
     { name: 'Main site', href: 'https://brainage04.github.io/', external: true },
   ],
   sourceHref: 'https://github.com/brainage04/GifStudio',
@@ -13,9 +12,6 @@ export const siteConfig = {
   faviconType: 'image/webp',
   image: '/pfp.webp',
   themeColor: '#171218',
-  preconnectHrefs: [],
   ownerHref: 'https://github.com/brainage04',
   ownerName: 'brainage04',
-  creatorHref: undefined,
-  creatorName: undefined,
 } as const satisfies SiteConfig;

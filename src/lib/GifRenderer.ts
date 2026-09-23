@@ -6,8 +6,6 @@ export interface GifRenderSource {
   /** Filename FFmpeg opens; its extension tells FFmpeg which demuxer to prefer. */
   name: string;
   data: FileData;
-  /** MEMFS path for `data`, when FFmpeg must open something other than the written file (e.g. an image2 pattern). */
-  writePath?: string;
 }
 
 export interface GifRenderInput {
@@ -18,9 +16,15 @@ export interface GifRenderInput {
   loop?: number;
   /** Extra MEMFS files the inputs reference, written before exec and deleted after (e.g. a PNG frame sequence). */
   extraFiles?: GifRenderSource[];
-  /** Options inserted before each `-i` for inputs that need them (e.g. `-framerate` on a frame sequence). */
+  /** Options inserted before each `-i` for inputs that need them (e.g. `-f concat` on a frame sequence). */
   inputArgs?: { base?: readonly string[]; overlay?: readonly string[] };
+  /** Options inserted before the output file (e.g. `-final_delay`). */
+  outputArgs?: readonly string[];
+  /** Rejects the render with an `AbortError`; FFmpeg finishes a running command, but its result is dropped. */
+  signal?: AbortSignal;
 }
+
+const extensionOf = (name: string) => (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? 'bin').toLowerCase();
 
 export class GifRenderer {
   readonly #ffmpeg: FfmpegClient;
@@ -36,55 +40,82 @@ export class GifRenderer {
     await this.#ensureReady();
   }
 
-  async render({ id, base, overlay, filterGraph, loop = 0, extraFiles = [], inputArgs = {} }: GifRenderInput) {
+  async render({
+    id,
+    base,
+    overlay,
+    filterGraph,
+    loop = 0,
+    extraFiles = [],
+    inputArgs = {},
+    outputArgs = [],
+    signal,
+  }: GifRenderInput) {
     await this.#ensureReady();
 
     // FFmpeg picks its demuxer from content first, but a matching extension keeps the choice explicit.
-    const baseExtension = (/\.([a-z0-9]+)$/i.exec(base.name)?.[1] ?? 'bin').toLowerCase();
-    const overlayExtension = (/\.([a-z0-9]+)$/i.exec(overlay.name)?.[1] ?? 'bin').toLowerCase();
-    const basePath = base.writePath ?? `base-${id}.${baseExtension}`;
-    const overlayPath = overlay.writePath ?? `overlay-${id}.${overlayExtension}`;
-    // Without an explicit path FFmpeg reads what we wrote; with one it reads `name` (an image2 pattern, say).
-    const baseName = base.writePath ? base.name : basePath;
-    const overlayName = overlay.writePath ? overlay.name : overlayPath;
+    const basePath = `base-${id}.${extensionOf(base.name)}`;
+    const overlayPath = `overlay-${id}.${extensionOf(overlay.name)}`;
     const outputName = `rendered-${id}.gif`;
+    const inputFiles = [{ name: basePath, data: base.data }, { name: overlayPath, data: overlay.data }, ...extraFiles];
 
     try {
-      await this.#ffmpeg.writeFile(basePath, base.data);
-      await this.#ffmpeg.writeFile(overlayPath, overlay.data);
-      for (const file of extraFiles) {
-        await this.#ffmpeg.writeFile(file.name, file.data);
+      // FFmpeg only listens for an abort that happens while a call is pending, so check between calls too.
+      for (const file of inputFiles) {
+        signal?.throwIfAborted();
+        await this.#ffmpeg.writeFile(file.name, file.data, { signal });
       }
 
+      signal?.throwIfAborted();
       // A rejected input leaves a zero-byte output behind instead of rejecting, so both signals matter.
-      const exitCode = await this.#ffmpeg.exec([
-        ...(inputArgs.base ?? []),
-        '-i',
-        baseName,
-        ...(inputArgs.overlay ?? []),
-        '-i',
-        overlayName,
-        '-filter_complex',
-        filterGraph,
-        '-loop',
-        String(loop),
-        outputName,
-      ]);
+      const exitCode = await this.#ffmpeg.exec(
+        [
+          ...(inputArgs.base ?? []),
+          '-i',
+          basePath,
+          ...(inputArgs.overlay ?? []),
+          '-i',
+          overlayPath,
+          '-filter_complex',
+          filterGraph,
+          '-loop',
+          String(loop),
+          ...outputArgs,
+          outputName,
+        ],
+        undefined,
+        { signal },
+      );
       if (exitCode !== 0) {
         throw new Error(`FFmpeg exited with code ${exitCode}.`);
       }
 
-      const output = await this.#ffmpeg.readFile(outputName);
+      signal?.throwIfAborted();
+      const output = await this.#ffmpeg.readFile(outputName, undefined, { signal });
       if (!output.length) {
         throw new Error('FFmpeg wrote an empty GIF.');
       }
       return output;
     } finally {
+      // Not aborted: the worker runs these after any command still in flight, so nothing is left behind.
       await Promise.allSettled(
-        [basePath, overlayPath, ...extraFiles.map((file) => file.name), outputName].map((path) =>
-          this.#ffmpeg.deleteFile(path),
-        ),
+        [...inputFiles.map((file) => file.name), outputName].map((path) => this.#ffmpeg.deleteFile(path)),
       );
+    }
+  }
+
+  /** Whether FFmpeg decodes every frame of `source` on its own; `-xerror` makes any decode error fatal. */
+  async decodes(id: number, source: GifRenderSource, signal?: AbortSignal) {
+    await this.#ensureReady();
+
+    const path = `probe-${id}.${extensionOf(source.name)}`;
+    try {
+      signal?.throwIfAborted();
+      await this.#ffmpeg.writeFile(path, source.data, { signal });
+      signal?.throwIfAborted();
+      return (await this.#ffmpeg.exec(['-xerror', '-i', path, '-f', 'null', '-'], undefined, { signal })) === 0;
+    } finally {
+      await this.#ffmpeg.deleteFile(path).catch(() => false);
     }
   }
 

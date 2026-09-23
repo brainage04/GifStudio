@@ -2,8 +2,9 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import coreUrl from '@ffmpeg/core?url';
 import wasmUrl from '@ffmpeg/core/wasm?url';
-import { decodeAnimationFrames } from '../lib/decodedFrames';
+import { decodeAnimationFrames, frameSequenceInput } from '../lib/decodedFrames';
 import { GifRenderer } from '../lib/GifRenderer';
+import { clampOverlayDimension, maxOverlayDimension, MIN_OVERLAY_DIMENSION } from '../lib/placement';
 
 const appBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/`;
 
@@ -44,8 +45,6 @@ const yInput = requireElement('y-input', HTMLInputElement);
 const widthInput = requireElement('width-input', HTMLInputElement);
 const heightInput = requireElement('height-input', HTMLInputElement);
 
-const MIN_OVERLAY_DIMENSION = 16;
-const MAX_OVERLAY_SCALE = 4;
 const supportedImageName = /\.(gif|jpe?g|png|webp)$/i;
 
 // Dropped files and CORS responses do not always carry a MIME type, so the filename is a fallback signal.
@@ -84,6 +83,16 @@ type ActivePointer =
       stageScale: number;
     };
 
+/** One replaceable source (base or overlay); each new selection supersedes the previous one. */
+type SourceRequests = {
+  kind: 'base' | 'overlay';
+  latest: number;
+  fetch: AbortController | null;
+  input: HTMLInputElement;
+  button: HTMLButtonElement;
+  fallbackName: string;
+};
+
 const resizeHandles: Partial<Record<ResizeDirection, HTMLDivElement>> = {};
 const isResizeDirection = (value: string | undefined): value is ResizeDirection => {
   return resizeDirections.some((direction) => direction === value);
@@ -111,8 +120,22 @@ let activePointer: ActivePointer | null = null;
 let autoRenderTimer: number | null = null;
 let renderController: AbortController | null = null;
 let renderSequence = 0;
-let baseFetchController: AbortController | null = null;
-let overlayFetchController: AbortController | null = null;
+const baseRequests: SourceRequests = {
+  kind: 'base',
+  latest: 0,
+  fetch: null,
+  input: baseUrlInput,
+  button: baseUrlLoadButton,
+  fallbackName: 'base',
+};
+const overlayRequests: SourceRequests = {
+  kind: 'overlay',
+  latest: 0,
+  fetch: null,
+  input: overlayUrlInput,
+  button: overlayUrlLoadButton,
+  fallbackName: 'overlay-image',
+};
 const ffmpeg = new FFmpeg();
 const gifRenderer = new GifRenderer(ffmpeg, { coreURL: coreUrl, wasmURL: wasmUrl });
 let lastFfmpegLog = '';
@@ -128,6 +151,13 @@ ffmpeg.on('log', ({ message }) => {
 const setStatus = (message: string) => {
   statusText.textContent = message;
   statusText.hidden = !message;
+};
+
+const setSelectedFileText = (element: HTMLParagraphElement, text: string) => {
+  // A polite live region: rewriting identical text would announce it again.
+  if (element.textContent !== text) {
+    element.textContent = text;
+  }
 };
 
 const syncResizeHandles = () => {
@@ -152,10 +182,6 @@ const errorMessage = (error: unknown, fallback: string) => {
     return error.message;
   }
   return fallback;
-};
-
-const isAbortError = (error: unknown) => {
-  return error instanceof Error && error.name === 'AbortError';
 };
 
 const revokeUrls = () => {
@@ -187,13 +213,13 @@ const baseSize = () => ({
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
-const maxOverlayWidth = () => Math.max(overlayNaturalWidth * MAX_OVERLAY_SCALE, MIN_OVERLAY_DIMENSION);
-const maxOverlayHeight = () => Math.max(overlayNaturalHeight * MAX_OVERLAY_SCALE, MIN_OVERLAY_DIMENSION);
+const maxOverlayWidth = () => maxOverlayDimension(overlayNaturalWidth);
+const maxOverlayHeight = () => maxOverlayDimension(overlayNaturalHeight);
 
 const normalizePlacement = ({ x, y, width, height }: Placement): Placement => {
   const size = baseSize();
-  const safeWidth = Math.max(width || 1, 1);
-  const safeHeight = Math.max(height || 1, 1);
+  const safeWidth = clampOverlayDimension(width, overlayNaturalWidth);
+  const safeHeight = clampOverlayDimension(height, overlayNaturalHeight);
   const minVisibleX = Math.min(safeWidth, Math.max(20, size.width * 0.05));
   const minVisibleY = Math.min(safeHeight, Math.max(20, size.height * 0.05));
 
@@ -228,11 +254,13 @@ const syncPlacementPreview = () => {
   placementStage.style.aspectRatio = `${size.width} / ${size.height}`;
 };
 
-const setOverlayFile = (file: File | null) => {
+const setOverlayFile = (file: File | null, label?: string) => {
+  cancelRender();
+  resetResult();
   overlayFile = file;
 
   if (!overlayFile) {
-    selectedFile.textContent = 'No file selected.';
+    setSelectedFileText(selectedFile, 'No file selected.');
     overlayPreview.hidden = true;
     stageOverlay.hidden = true;
     setStatus('');
@@ -247,7 +275,7 @@ const setOverlayFile = (file: File | null) => {
   overlayPreviewImage.src = overlayPreviewUrl;
   overlayImage.src = overlayPreviewUrl;
   overlayPreview.hidden = false;
-  selectedFile.textContent = `${overlayFile.name} • ${Math.round(overlayFile.size / 1024)} KB`;
+  setSelectedFileText(selectedFile, label ?? `${overlayFile.name} • ${Math.round(overlayFile.size / 1024)} KB`);
   setStatus('');
   queueImageLoadingSync();
 };
@@ -259,6 +287,8 @@ const setBasePreviewSource = (src: string) => {
 };
 
 const setBaseFile = (file: File | null) => {
+  cancelRender();
+  resetResult();
   baseFile = file;
 
   if (!baseFile) {
@@ -267,7 +297,7 @@ const setBaseFile = (file: File | null) => {
       basePreviewUrl = null;
     }
     setBasePreviewSource(defaultBaseSrc);
-    baseSelectedFile.textContent = 'Using default base GIF.';
+    setSelectedFileText(baseSelectedFile, 'Using default base GIF.');
     if (overlayFile) {
       scheduleRender(0);
     }
@@ -280,7 +310,7 @@ const setBaseFile = (file: File | null) => {
 
   basePreviewUrl = URL.createObjectURL(baseFile);
   setBasePreviewSource(basePreviewUrl);
-  baseSelectedFile.textContent = `${baseFile.name} • ${Math.round(baseFile.size / 1024)} KB`;
+  setSelectedFileText(baseSelectedFile, `${baseFile.name} • ${Math.round(baseFile.size / 1024)} KB`);
 };
 
 const showResult = (blob: Blob, filename: string) => {
@@ -315,93 +345,122 @@ const cancelScheduledRender = () => {
   }
 };
 
+/** Drop any pending or running render; a superseded render can no longer write status or results. */
+const cancelRender = () => {
+  cancelScheduledRender();
+  renderController?.abort();
+  renderController = null;
+};
+
+const ffmpegDetail = () => {
+  const detail = lastFfmpegLog
+    .split(/[\r\n]+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^Last message repeated/.test(line))
+    .pop();
+  return detail ? ` ${detail.slice(0, 200)}` : '';
+};
+
 const renderGif = async () => {
   if (!overlayFile) {
     return;
   }
   const activeOverlayFile = overlayFile;
 
-  cancelScheduledRender();
-  renderController?.abort();
+  cancelRender();
   const controller = new AbortController();
   renderController = controller;
+  // Every path that supersedes this render aborts it, so `signal.aborted` is its identity check.
+  const { signal } = controller;
   const requestId = ++renderSequence;
   resetResult();
   setStatus('Loading browser renderer...');
 
   try {
     await gifRenderer.prepare();
-    if (controller.signal.aborted) return;
+    signal.throwIfAborted();
 
     setStatus('Rendering GIF in this browser...');
     let activeBaseFile = baseFile;
     if (!activeBaseFile) {
-      const response = await fetch(defaultBaseSrc);
+      const response = await fetch(defaultBaseSrc, { signal });
       if (!response.ok) throw new Error('Default base GIF could not be loaded.');
       activeBaseFile = new File([await response.blob()], 'woman_is_talking.gif', { type: 'image/gif' });
     }
 
-    const filterGraph = `[1:v]scale=${widthInput.value}:${heightInput.value}[overlay];[0:v][overlay]overlay=${xInput.value}:${yInput.value},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`;
+    // Typed values can be fractional or past the resize limit; FFmpeg gets the same clamped box the editor shows.
+    const placement = normalizePlacement(placementValues());
+    const [x, y, width, height] = [placement.x, placement.y, placement.width, placement.height].map(Math.round);
+    const filterGraph = `[1:v]scale=${width}:${height}[overlay];[0:v][overlay]overlay=${x}:${y},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`;
+    // FFmpeg transfers the buffer to its worker, so every FFmpeg call reads the bytes again.
+    const overlaySource = async () => ({ name: activeOverlayFile.name, data: await fetchFile(activeOverlayFile) });
 
+    let notice = '';
     lastFfmpegLog = '';
     let data: Uint8Array | string;
     try {
       data = await gifRenderer.render({
         id: requestId,
         base: { name: activeBaseFile.name, data: await fetchFile(activeBaseFile) },
-        // FFmpeg transfers the buffer to its worker, so every attempt reads the bytes again.
-        overlay: { name: activeOverlayFile.name, data: await fetchFile(activeOverlayFile) },
+        overlay: await overlaySource(),
         filterGraph,
+        signal,
       });
     } catch (error) {
-      // FFmpeg's core cannot open every image the browser can (animated WebP, AVIF); hand it frames.
-      const decoded = await decodeAnimationFrames(activeBaseFile);
-      const firstFrame = decoded?.frames[0];
-      if (!decoded || !firstFrame || controller.signal.aborted) {
-        throw error;
+      if (signal.aborted) throw error;
+      const failure = `${errorMessage(error, 'Render failed in this browser.')}${ffmpegDetail()}`;
+
+      // FFmpeg's core cannot open every image the browser can (animated WebP, AVIF). Only when the base
+      // itself is what FFmpeg rejected is it worth handing FFmpeg browser-decoded frames instead.
+      const baseSource = { name: activeBaseFile.name, data: await fetchFile(activeBaseFile) };
+      if (await gifRenderer.decodes(requestId, baseSource, signal)) {
+        throw new Error(failure, { cause: error });
+      }
+      const decoded = await decodeAnimationFrames(activeBaseFile, signal);
+      if (!decoded) {
+        throw new Error(failure, { cause: error });
       }
 
+      signal.throwIfAborted();
       setStatus('Converting this base animation for the browser renderer...');
       const frameName = (index: number) => `frame-${requestId}-${String(index).padStart(4, '0')}.png`;
+      const sequence = frameSequenceInput(
+        decoded.frames.map((frame, index) => ({ name: frameName(index), durationMs: frame.durationMs })),
+      );
       lastFfmpegLog = '';
 
       try {
         data = await gifRenderer.render({
           id: requestId,
-          base: {
-            name: `frame-${requestId}-%04d.png`,
-            writePath: frameName(0),
-            data: firstFrame.data,
-          },
-          overlay: { name: activeOverlayFile.name, data: await fetchFile(activeOverlayFile) },
+          base: { name: `frames-${requestId}.txt`, data: sequence.script },
+          overlay: await overlaySource(),
           filterGraph,
-          inputArgs: {
-            base: ['-f', 'image2', '-framerate', String(decoded.framerate), '-start_number', '0'],
-          },
-          extraFiles: decoded.frames.slice(1).map((frame, index) => ({ name: frameName(index + 1), data: frame.data })),
+          inputArgs: { base: sequence.inputArgs },
+          outputArgs: sequence.outputArgs,
+          extraFiles: decoded.frames.map((frame, index) => ({ name: frameName(index), data: frame.data })),
+          signal,
         });
       } catch (retryError) {
+        if (signal.aborted) throw retryError;
         throw new Error(
-          `The browser could not convert this base either. ${errorMessage(retryError, 'Render failed.')}`,
+          `${failure} Rendering the browser-decoded base frames failed too: ${errorMessage(retryError, 'Render failed.')}${ffmpegDetail()}`,
           { cause: retryError },
         );
       }
+
+      if (decoded.totalFrames > decoded.frames.length) {
+        notice = `Only the first ${decoded.frames.length} of ${decoded.totalFrames} base frames were rendered; longer animations are cut short to fit in browser memory.`;
+      }
     }
 
-    if (requestId !== renderSequence || controller.signal.aborted) return;
+    signal.throwIfAborted();
     const gifBytes = data instanceof Uint8Array ? new Uint8Array(data) : new TextEncoder().encode(data);
     const baseStem = activeBaseFile.name.replace(/\.[^.]+$/, '') || 'base';
     showResult(new Blob([gifBytes], { type: 'image/gif' }), `${baseStem}_overlay.gif`);
-    setStatus('');
+    setStatus(notice);
   } catch (error) {
-    if (!isAbortError(error)) {
-      const message = errorMessage(error, 'Render failed in this browser.');
-      const detail = lastFfmpegLog
-        .split(/[\r\n]+/)
-        .map((line) => line.trim())
-        .filter((line) => line && !/^Last message repeated/.test(line))
-        .pop();
-      setStatus(detail ? `${message} ${detail.slice(0, 200)}` : message);
+    if (!signal.aborted) {
+      setStatus(errorMessage(error, 'Render failed in this browser.'));
     }
   } finally {
     if (renderController === controller) {
@@ -432,7 +491,7 @@ const handleBaseFiles = (files: File[] | FileList | null) => {
     return;
   }
 
-  resetResult();
+  supersede(baseRequests);
   setBaseFile(file);
   setStatus('');
 };
@@ -460,7 +519,6 @@ const fetchRemoteFile = async (value: string, accept: string, fallback: string, 
   try {
     response = await fetch(url, { headers: { Accept: accept }, signal });
   } catch (error) {
-    if (isAbortError(error)) throw error;
     throw new Error(
       'The remote host did not allow this browser to fetch the image (CORS) or the network request failed.',
       { cause: error },
@@ -474,33 +532,52 @@ const fetchRemoteFile = async (value: string, accept: string, fallback: string, 
   });
 };
 
-const loadBaseFromUrl = async () => {
-  const url = baseUrlInput.value.trim();
+/** Start a new selection for a source: abort its pending URL load; only the returned request may commit. */
+const supersede = (requests: SourceRequests) => {
+  requests.fetch?.abort();
+  requests.fetch = null;
+  requests.button.disabled = false;
+  requests.latest += 1;
+  return requests.latest;
+};
+
+const loadFromUrl = async (requests: SourceRequests, apply: (file: File) => void) => {
+  const url = requests.input.value.trim();
   if (!url) {
     setStatus('Enter a GIF or image URL first.');
     return;
   }
 
-  baseFetchController?.abort();
-  baseFetchController = new AbortController();
-  baseUrlLoadButton.disabled = true;
-  setStatus('Loading base GIF or image...');
+  const request = supersede(requests);
+  const controller = new AbortController();
+  requests.fetch = controller;
+  requests.button.disabled = true;
+  setStatus(`Loading ${requests.kind} GIF or image...`);
 
   try {
-    const file = await fetchRemoteFile(url, 'image/*,*/*;q=0.1', 'base', baseFetchController.signal);
+    const file = await fetchRemoteFile(url, 'image/*,*/*;q=0.1', requests.fallbackName, controller.signal);
+    if (request !== requests.latest) return;
     if (!isSupportedImage(file)) {
       throw new Error('URL did not return a GIF or image.');
     }
-    resetResult();
-    setBaseFile(file);
-    setStatus('');
+    apply(file);
   } catch (error) {
-    if (!isAbortError(error)) setStatus(errorMessage(error, 'Base fetch failed.'));
+    if (request === requests.latest) {
+      setStatus(errorMessage(error, `The ${requests.kind} fetch failed.`));
+    }
   } finally {
-    baseFetchController = null;
-    baseUrlLoadButton.disabled = false;
+    if (request === requests.latest) {
+      requests.fetch = null;
+      requests.button.disabled = false;
+    }
   }
 };
+
+const loadBaseFromUrl = () =>
+  loadFromUrl(baseRequests, (file) => {
+    setBaseFile(file);
+    setStatus('');
+  });
 
 const handleOverlayFiles = (files: File[] | FileList | null) => {
   const file = files?.[0];
@@ -513,15 +590,8 @@ const handleOverlayFiles = (files: File[] | FileList | null) => {
     return;
   }
 
-  resetResult();
+  supersede(overlayRequests);
   setOverlayFile(file);
-};
-
-const setOverlayBlob = (blob: Blob, filename: string) => {
-  const file = new File([blob], filename || 'overlay-image', {
-    type: blob.type || 'image/png',
-  });
-  handleOverlayFiles([file]);
 };
 
 const handlePaste = (event: ClipboardEvent) => {
@@ -551,41 +621,22 @@ const handlePaste = (event: ClipboardEvent) => {
   handleOverlayFiles([file]);
 };
 
-const loadOverlayFromUrl = async () => {
-  const url = overlayUrlInput.value.trim();
-  if (!url) {
-    setStatus('Enter a GIF or image URL first.');
-    return;
-  }
-
-  overlayFetchController?.abort();
-  overlayFetchController = new AbortController();
-  overlayUrlLoadButton.disabled = true;
-  setStatus('Loading overlay GIF or image...');
-
-  try {
-    const file = await fetchRemoteFile(url, 'image/*,*/*;q=0.1', 'overlay-image', overlayFetchController.signal);
-    if (!isSupportedImage(file)) {
-      throw new Error('URL did not return a GIF or image.');
-    }
-    setOverlayFile(file);
-    setStatus('');
-  } catch (error) {
-    if (!isAbortError(error)) setStatus(errorMessage(error, 'Overlay fetch failed.'));
-  } finally {
-    overlayFetchController = null;
-    overlayUrlLoadButton.disabled = false;
-  }
-};
+const loadOverlayFromUrl = () => loadFromUrl(overlayRequests, (file) => setOverlayFile(file));
 
 const loadDefaultOverlayImage = async () => {
+  // An overlay the reader picks while this loads wins; only an untouched overlay gets the default.
+  const request = overlayRequests.latest;
   try {
     const response = await fetch(`${appBase}pfp.webp`);
     if (!response.ok) throw new Error('Default overlay image could not be loaded.');
-    setOverlayBlob(await response.blob(), 'pfp.webp');
-    selectedFile.textContent = 'Using default overlay image.';
+    const blob = await response.blob();
+    if (request === overlayRequests.latest) {
+      setOverlayFile(new File([blob], 'pfp.webp', { type: blob.type || 'image/webp' }), 'Using default overlay image.');
+    }
   } catch (error) {
-    setStatus(errorMessage(error, 'Default overlay image could not be loaded.'));
+    if (request === overlayRequests.latest) {
+      setStatus(errorMessage(error, 'Default overlay image could not be loaded.'));
+    }
   }
 };
 
@@ -820,6 +871,8 @@ stageBase.addEventListener('load', () => {
 overlayImage.addEventListener('load', () => {
   overlayNaturalWidth = overlayImage.naturalWidth;
   overlayNaturalHeight = overlayImage.naturalHeight;
+  widthInput.max = String(maxOverlayWidth());
+  heightInput.max = String(maxOverlayHeight());
   widthInput.value = String(Math.round(overlayNaturalWidth / 2));
   heightInput.value = String(Math.round(overlayNaturalHeight / 2));
   syncPlacementPreview();

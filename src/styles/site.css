@@ -1,34 +1,10 @@
 html:root {
-  --font-mono: 'Courier New', Courier, monospace;
-  --font-family: var(--font-mono);
-  --background0: #171218;
-  --background1: #201820;
-  --background2: #2b202d;
-  --background3: #433247;
-  --foreground0: #fff8fc;
-  --foreground1: #ead8e7;
-  --foreground2: #bca5bf;
-  --surface: #1d171e;
-  --surface-raised: #251c27;
-  --border-subtle: rgb(217 180 237 / 20%);
-  --border-strong: rgb(239 179 195 / 52%);
-  --shadow-soft: 0 1rem 2.5rem rgb(23 18 24 / 48%);
-  --accent: #efb3c3;
-  --accent-cyan: #d9b4ed;
-  --accent-yellow: #f8d8e5;
-  --panel-bg: color-mix(in srgb, var(--surface) 94%, transparent);
-  --panel-border: var(--border-subtle);
-  --panel-shadow: var(--shadow-soft);
   --control-bg: var(--surface-raised);
   --control-border: var(--border-strong);
-  --control-height: 2.75rem;
-  --site-main-width: 70rem;
-  color-scheme: dark;
 }
 
+/* The shell button is ~0.4px taller than --control-height; pin it so it lines up with the URL input. */
 .url-loader .action-button {
-  align-self: end;
-  min-height: var(--control-height);
   height: var(--control-height);
   padding-block: 0;
 }
@@ -89,8 +65,8 @@ html:root {
 
 .dropzone:hover,
 .dropzone.is-dragging {
-  border-color: var(--accent-cyan);
-  background: color-mix(in srgb, var(--accent-cyan) 12%, var(--background0));
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--background0));
   color: var(--foreground0);
 }
 
@@ -122,8 +98,7 @@ html:root {
   margin-block-start: var(--editor-control-gap);
 }
 
-input[type='url'],
-input[type='number'] {
+input[type='url'] {
   width: 100%;
   min-width: 0;
   min-height: var(--control-height);
@@ -192,7 +167,7 @@ input[type='url']::placeholder {
   position: absolute;
   cursor: move;
   touch-action: none;
-  outline: 1px solid var(--accent-cyan);
+  outline: 1px solid var(--accent-primary);
   outline-offset: 1px;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--background0) 80%, transparent);
 }
@@ -214,7 +189,7 @@ input[type='url']::placeholder {
   width: 0.9rem;
   height: 0.9rem;
   border: 1px solid var(--background0);
-  background: var(--accent-cyan);
+  background: var(--accent-primary);
   box-shadow: 0 0 0 1px var(--foreground0);
   touch-action: none;
 }
@@ -292,7 +267,7 @@ input[type='url']::placeholder {
 }
 
 input[type='checkbox'] {
-  accent-color: var(--accent-cyan);
+  accent-color: var(--accent-primary);
 }
 
 @media (max-width: 760px) {
