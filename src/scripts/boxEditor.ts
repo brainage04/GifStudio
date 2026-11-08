@@ -12,7 +12,9 @@ export interface BoxEditorOptions {
   resizeOptions: (start: Box, shiftKey: boolean) => ResizeOptions;
   /** Where a drag of `(dx, dy)` from `start` puts the box. */
   move: (start: Box, dx: number, dy: number) => Box;
-  /** Every new box while a pointer is down, then once more with `done` when it is released. */
+  /** A pointer went down on the box or a handle. */
+  onStart?: () => void;
+  /** The new box at most once per animation frame while a pointer is down, then with `done` on release. */
   onChange: (box: Box, done: boolean) => void;
   /** Ignore pointers while this is false (e.g. nothing loaded yet). */
   enabled?: () => boolean;
@@ -44,6 +46,26 @@ export const createBoxEditor = (options: BoxEditorOptions) => {
 
   const stageScale = () => stage.getBoundingClientRect().width / (options.space().width || 1);
   let active: ActivePointer | null = null;
+  /** The latest pointer position not yet applied; moves are applied at most once per animation frame. */
+  let pending: { clientX: number; clientY: number; shiftKey: boolean } | null = null;
+  let frame = 0;
+
+  const applyPending = () => {
+    frame = 0;
+    if (!active || !pending) {
+      return;
+    }
+    const dx = (pending.clientX - active.startClientX) / active.scale;
+    const dy = (pending.clientY - active.startClientY) / active.scale;
+    const shiftKey = pending.shiftKey;
+    pending = null;
+    options.onChange(
+      active.direction
+        ? resizeBox(active.start, active.direction, dx, dy, options.resizeOptions(active.start, shiftKey))
+        : options.move(active.start, dx, dy),
+      false,
+    );
+  };
 
   element.addEventListener('pointerdown', (event) => {
     const scale = stageScale();
@@ -63,25 +85,24 @@ export const createBoxEditor = (options: BoxEditorOptions) => {
       scale,
     };
     event.target.setPointerCapture(event.pointerId);
+    options.onStart?.();
   });
 
   window.addEventListener('pointermove', (event) => {
     if (!active || event.pointerId !== active.pointerId) {
       return;
     }
-    const dx = (event.clientX - active.startClientX) / active.scale;
-    const dy = (event.clientY - active.startClientY) / active.scale;
-    options.onChange(
-      active.direction
-        ? resizeBox(active.start, active.direction, dx, dy, options.resizeOptions(active.start, event.shiftKey))
-        : options.move(active.start, dx, dy),
-      false,
-    );
+    pending = { clientX: event.clientX, clientY: event.clientY, shiftKey: event.shiftKey };
+    frame ||= window.requestAnimationFrame(applyPending);
   });
 
   const end = (event: PointerEvent) => {
     if (!active || event.pointerId !== active.pointerId) {
       return;
+    }
+    if (frame) {
+      window.cancelAnimationFrame(frame);
+      applyPending();
     }
     if (active.target.hasPointerCapture(event.pointerId)) {
       active.target.releasePointerCapture(event.pointerId);
@@ -95,7 +116,8 @@ export const createBoxEditor = (options: BoxEditorOptions) => {
   return {
     /** Position the box element for `box` at the stage's current rendered size. */
     layout: (box: Box) => {
-      const scale = stageScale();
+      // During a drag the stage cannot change size, so skip measuring it (which forces a layout).
+      const scale = active?.scale ?? stageScale();
       element.style.left = `${box.x * scale}px`;
       element.style.top = `${box.y * scale}px`;
       element.style.width = `${box.width * scale}px`;

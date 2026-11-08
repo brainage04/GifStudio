@@ -153,7 +153,8 @@ const readPicture = async (file: File) => {
 const roundedCrop = () => ({
   x: Math.round(pictureCrop.x),
   y: Math.round(pictureCrop.y),
-  size: Math.round(Math.min(pictureCrop.width, pictureCrop.height)),
+  width: Math.max(1, Math.round(pictureCrop.width)),
+  height: Math.max(1, Math.round(pictureCrop.height)),
 });
 
 const placementInputs = [scaleInput, offsetXInput, offsetYInput];
@@ -166,12 +167,13 @@ const placementValues = (): PicturePlacement => ({
 
 /** The picture's box on the editor frame, as `pastePicture` places it (before its pixel rounding). */
 const placementBox = ({ scale, offsetX, offsetY }: PicturePlacement): Box => {
-  const size = editorFace * scale;
+  const width = editorFace * scale;
+  const height = (width * pictureCrop.height) / (pictureCrop.width || 1);
   return {
-    x: editorFaceX + offsetX * editorFace - size / 2,
-    y: editorFaceY + offsetY * editorFace - editorFace * 0.08 - size / 2,
-    width: size,
-    height: size,
+    x: editorFaceX + offsetX * editorFace - width / 2,
+    y: editorFaceY + offsetY * editorFace - editorFace * 0.08 - height / 2,
+    width,
+    height,
   };
 };
 
@@ -220,15 +222,12 @@ const placementEditor = createBoxEditor({
   space: () => templateSize,
   current: () => placementBox(placementValues()),
   resizeOptions: () => ({
-    limits: {
-      minWidth: editorFace * 0.5,
-      minHeight: editorFace * 0.5,
-      maxWidth: editorFace * 4,
-      maxHeight: editorFace * 4,
-    },
-    aspect: 1,
+    // Width follows Size; the height comes with it in the crop's proportions.
+    limits: { minWidth: editorFace * 0.5, minHeight: 1, maxWidth: editorFace * 4, maxHeight: Infinity },
+    aspect: pictureCrop.width / pictureCrop.height,
   }),
   move: (start, dx, dy) => ({ ...start, x: start.x + dx, y: start.y + dy }),
+  onStart: stopRenderForDrag,
   onChange: (box, done) => {
     setPlacementFromBox(box);
     syncPlacement();
@@ -244,15 +243,18 @@ const cropEditor = createBoxEditor({
   element: cropBox,
   space: () => pictureSize,
   current: () => pictureCrop,
-  resizeOptions: () => {
-    const side = Math.min(pictureSize.width, pictureSize.height);
-    return {
-      limits: { minWidth: Math.min(16, side), minHeight: Math.min(16, side), maxWidth: side, maxHeight: side },
-      contain: pictureSize,
-      aspect: 1,
-    };
-  },
+  resizeOptions: (start, shiftKey) => ({
+    limits: {
+      minWidth: Math.min(16, pictureSize.width),
+      minHeight: Math.min(16, pictureSize.height),
+      maxWidth: pictureSize.width,
+      maxHeight: pictureSize.height,
+    },
+    contain: pictureSize,
+    aspect: shiftKey ? start.width / start.height : null,
+  }),
   move: (start, dx, dy) => moveBoxInside(start, dx, dy, pictureSize),
+  onStart: stopRenderForDrag,
   onChange: (box, done) => {
     pictureCrop = box;
     cropEditor.layout(box);
@@ -264,6 +266,12 @@ const cropEditor = createBoxEditor({
   },
   enabled: () => Boolean(pictureSize.width),
 });
+
+/** A drag will render once it ends; a render still running would only compete with it for the main thread. */
+function stopRenderForDrag() {
+  cancelRender();
+  setStatus('');
+}
 
 /** Disable the download while a new result is pending; the old one stays on screen until replaced. */
 const disableDownload = () => {
@@ -510,8 +518,7 @@ previewImage.addEventListener('load', () => {
     return;
   }
   pictureSize = { width: previewImage.naturalWidth, height: previewImage.naturalHeight };
-  const crop = centeredCrop(pictureSize.width, pictureSize.height);
-  pictureCrop = { x: crop.x, y: crop.y, width: crop.size, height: crop.size };
+  pictureCrop = centeredCrop(pictureSize.width, pictureSize.height);
   cropBox.hidden = false;
   cropEditor.layout(pictureCrop);
   syncPlacement();
