@@ -5,6 +5,7 @@ export const siteConfig = {
   description: 'Browser-based GIF overlay renderer by brainage04.',
   navItems: [
     { name: 'GifStudio', href: '/' },
+    { name: 'Who is this', href: '/who-is-this/' },
     { name: 'Main site', href: 'https://brainage04.github.io/', external: true },
   ],
   sourceHref: 'https://github.com/brainage04/GifStudio',

@@ -1,0 +1,123 @@
+---
+import TerminalPanel from '@brainage04/astro-shell/components/TerminalPanel.astro';
+import { withBase } from '@brainage04/astro-shell/withBase';
+import template from '../data/whoIsThisTemplate.json';
+
+const sourceGif = withBase(`/assets/who-is-this/${template.source}`);
+const defaultPicture = withBase('/pfp.webp');
+const shapes = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'circle', label: 'Circle' },
+  { value: 'square', label: 'Square' },
+  { value: 'alpha', label: "Picture's transparency" },
+];
+---
+
+<div class="studio-grid">
+  <div class="studio-assets">
+    <TerminalPanel title="Picture" class="asset-panel">
+      <div class="panel-copy">
+        <div
+          class="dropzone combo-dropzone"
+          id="picture-dropzone"
+          role="group"
+          aria-label="Load picture from file or URL"
+        >
+          <label class="dropzone-prompt" for="picture-file-input">
+            <span><strong>Drop or paste a picture</strong>or click to choose a PNG, JPEG, GIF, or WebP.</span>
+            <input
+              class="sr-only"
+              id="picture-file-input"
+              type="file"
+              accept=".webp,.png,.jpg,.jpeg,.gif,image/webp,image/png,image/jpeg,image/gif"
+            />
+          </label>
+
+          <div class="url-loader" role="group" aria-label="Load picture from URL">
+            <label class="field" for="picture-url-input">
+              Picture URL
+              <input
+                id="picture-url-input"
+                type="url"
+                inputmode="url"
+                autocomplete="off"
+                placeholder="https://example.com/picture.png"
+              />
+            </label>
+            <button class="action-button" id="picture-url-load-button" type="button">Load</button>
+          </div>
+        </div>
+
+        <p class="selected-file" id="picture-selected-file" aria-live="polite">Using default picture.</p>
+        <div class="preview-frame overlay-preview">
+          <img id="picture-preview-image" src={defaultPicture} alt="Selected picture" width="400" height="400" />
+        </div>
+      </div>
+    </TerminalPanel>
+
+    <TerminalPanel title="Options" class="asset-panel">
+      <div class="panel-copy">
+        <p>
+          Puts the picture over the kid's face in the "who is this kid?" GIF and swaps "kid" in both captions for the
+          chosen word. Non-square pictures are cropped to their centre.
+        </p>
+        <div class="controls option-controls" role="group" aria-label="Remake options">
+          <label for="word-select">
+            Word
+            <select id="word-select">
+              {template.words.map((word) => <option value={word}>{word.toUpperCase()}</option>)}
+            </select>
+          </label>
+          <label for="shape-select">
+            Shape
+            <select id="shape-select" aria-describedby="shape-hint">
+              {shapes.map((shape) => <option value={shape.value}>{shape.label}</option>)}
+            </select>
+          </label>
+          <label for="scale-input">
+            Size
+            <input
+              id="scale-input"
+              type="number"
+              min="0.5"
+              max="4"
+              step="0.1"
+              value="1.6"
+              aria-describedby="scale-hint"
+            />
+          </label>
+          <label for="zoom-input">
+            Zoom
+            <input id="zoom-input" type="number" min="0.1" max="1" step="0.05" value="1" aria-describedby="zoom-hint" />
+          </label>
+        </div>
+        <ul class="option-hints">
+          <li id="shape-hint">Auto uses the picture's transparency when it has any, otherwise a feathered circle.</li>
+          <li id="scale-hint">Size is relative to the kid's face; 1.6 covers it with some margin.</li>
+          <li id="zoom-hint">Zoom keeps that fraction of the picture, centred; 0.7 crops tighter on a face.</li>
+        </ul>
+      </div>
+    </TerminalPanel>
+  </div>
+
+  <TerminalPanel title="Result" class="editor-panel">
+    <div class="preview-frame result-frame">
+      <img id="result-image" src={sourceGif} alt="The remade GIF" width={template.width} height={template.height} />
+    </div>
+
+    <div class="panel-actions editor-actions result-actions">
+      <button
+        class="action-button download-button disabled"
+        id="download-button"
+        type="button"
+        aria-disabled="true"
+        disabled>Download GIF</button
+      >
+      <a id="download-link" hidden aria-hidden="true" tabindex="-1"></a>
+    </div>
+
+    <p class="status" id="status" aria-live="polite" hidden></p>
+  </TerminalPanel>
+</div>
+
+<script src="../scripts/whoIsThis.ts"></script>

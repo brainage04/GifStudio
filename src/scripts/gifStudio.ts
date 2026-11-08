@@ -1,23 +1,17 @@
-import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
-import coreUrl from '@ffmpeg/core?url';
-import wasmUrl from '@ffmpeg/core/wasm?url';
 import { decodeAnimationFrames, frameSequenceInput } from '../lib/decodedFrames';
-import { GifRenderer } from '../lib/GifRenderer';
 import { clampOverlayDimension, maxOverlayDimension, MIN_OVERLAY_DIMENSION } from '../lib/placement';
-
-const appBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/`;
-
-const requireElement = <ElementType extends HTMLElement>(
-  id: string,
-  constructor: new (...args: never[]) => ElementType,
-) => {
-  const element = document.getElementById(id);
-  if (!(element instanceof constructor)) {
-    throw new Error(`Missing #${id}`);
-  }
-  return element;
-};
+import {
+  appBase,
+  bindDropzone,
+  createRenderer,
+  errorMessage,
+  fetchRemoteFile,
+  flashDropzone,
+  isSupportedImage,
+  pastedImage,
+  requireElement,
+} from './shared';
 
 const baseDropzone = requireElement('base-dropzone', HTMLDivElement);
 const baseFileInput = requireElement('base-file-input', HTMLInputElement);
@@ -44,11 +38,6 @@ const xInput = requireElement('x-input', HTMLInputElement);
 const yInput = requireElement('y-input', HTMLInputElement);
 const widthInput = requireElement('width-input', HTMLInputElement);
 const heightInput = requireElement('height-input', HTMLInputElement);
-
-const supportedImageName = /\.(gif|jpe?g|png|webp)$/i;
-
-// Dropped files and CORS responses do not always carry a MIME type, so the filename is a fallback signal.
-const isSupportedImage = (file: File) => file.type.startsWith('image/') || supportedImageName.test(file.name);
 
 const resizeDirections = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const;
 type ResizeDirection = (typeof resizeDirections)[number];
@@ -136,17 +125,8 @@ const overlayRequests: SourceRequests = {
   button: overlayUrlLoadButton,
   fallbackName: 'overlay-image',
 };
-const ffmpeg = new FFmpeg();
-const gifRenderer = new GifRenderer(ffmpeg, { coreURL: coreUrl, wasmURL: wasmUrl });
-let lastFfmpegLog = '';
+const { renderer: gifRenderer, resetLog, logDetail: ffmpegDetail } = createRenderer();
 const defaultBaseSrc = `${appBase}assets/base/woman_is_talking.gif`;
-
-ffmpeg.on('log', ({ message }) => {
-  const line = message.trim();
-  if (line) {
-    lastFfmpegLog = `${lastFfmpegLog} ${line}`.trim().slice(-400);
-  }
-});
 
 const setStatus = (message: string) => {
   statusText.textContent = message;
@@ -175,13 +155,6 @@ const syncImageLoading = () => {
 
 const queueImageLoadingSync = () => {
   window.requestAnimationFrame(syncImageLoading);
-};
-
-const errorMessage = (error: unknown, fallback: string) => {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  return fallback;
 };
 
 const revokeUrls = () => {
@@ -352,15 +325,6 @@ const cancelRender = () => {
   renderController = null;
 };
 
-const ffmpegDetail = () => {
-  const detail = lastFfmpegLog
-    .split(/[\r\n]+/)
-    .map((line) => line.trim())
-    .filter((line) => line && !/^Last message repeated/.test(line))
-    .pop();
-  return detail ? ` ${detail.slice(0, 200)}` : '';
-};
-
 const renderGif = async () => {
   if (!overlayFile) {
     return;
@@ -396,7 +360,7 @@ const renderGif = async () => {
     const overlaySource = async () => ({ name: activeOverlayFile.name, data: await fetchFile(activeOverlayFile) });
 
     let notice = '';
-    lastFfmpegLog = '';
+    resetLog();
     let data: Uint8Array | string;
     try {
       data = await gifRenderer.render({
@@ -427,7 +391,7 @@ const renderGif = async () => {
       const sequence = frameSequenceInput(
         decoded.frames.map((frame, index) => ({ name: frameName(index), durationMs: frame.durationMs })),
       );
-      lastFfmpegLog = '';
+      resetLog();
 
       try {
         data = await gifRenderer.render({
@@ -496,42 +460,6 @@ const handleBaseFiles = (files: File[] | FileList | null) => {
   setStatus('');
 };
 
-const filenameFromUrl = (value: string, fallback: string) => {
-  try {
-    const name = new URL(value).pathname.split('/').pop();
-    return name || fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const fetchRemoteFile = async (value: string, accept: string, fallback: string, signal: AbortSignal) => {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error('URL is invalid.');
-  }
-  if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new Error('Only http and https image URLs are supported.');
-  }
-  let response: Response;
-  try {
-    response = await fetch(url, { headers: { Accept: accept }, signal });
-  } catch (error) {
-    throw new Error(
-      'The remote host did not allow this browser to fetch the image (CORS) or the network request failed.',
-      { cause: error },
-    );
-  }
-  if (!response.ok) {
-    throw new Error(`Remote image fetch failed: ${response.status} ${response.statusText}`.trim());
-  }
-  return new File([await response.blob()], filenameFromUrl(url.href, fallback), {
-    type: response.headers.get('Content-Type') || 'application/octet-stream',
-  });
-};
-
 /** Start a new selection for a source: abort its pending URL load; only the returned request may commit. */
 const supersede = (requests: SourceRequests) => {
   requests.fetch?.abort();
@@ -595,24 +523,14 @@ const handleOverlayFiles = (files: File[] | FileList | null) => {
 };
 
 const handlePaste = (event: ClipboardEvent) => {
-  const item = Array.from(event.clipboardData?.items ?? []).find(
-    (entry) => entry.kind === 'file' && entry.type.startsWith('image/'),
-  );
-  const clipboardFile = item?.getAsFile();
-  if (!clipboardFile) {
+  const file = pastedImage(event);
+  if (!file) {
     return;
   }
 
   event.preventDefault();
   const target = pasteTarget;
-  target.classList.add('is-dragging');
-  window.setTimeout(() => target.classList.remove('is-dragging'), 600);
-
-  const file = clipboardFile.name
-    ? clipboardFile
-    : new File([clipboardFile], `pasted-image.${clipboardFile.type.split('/')[1] || 'png'}`, {
-        type: clipboardFile.type,
-      });
+  flashDropzone(target);
 
   if (target === baseDropzone) {
     handleBaseFiles([file]);
@@ -810,38 +728,9 @@ overlayPreviewImage.addEventListener('error', () => {
   setStatus('That overlay file could not be decoded by this browser.');
 });
 
-for (const eventName of ['dragenter', 'dragover']) {
-  baseDropzone.addEventListener(eventName, (event) => {
-    event.preventDefault();
-    baseDropzone.classList.add('is-dragging');
-  });
-}
-
-for (const eventName of ['dragleave', 'drop']) {
-  baseDropzone.addEventListener(eventName, (event) => {
-    event.preventDefault();
-    baseDropzone.classList.remove('is-dragging');
-  });
-}
-
-baseDropzone.addEventListener('drop', (event) => handleBaseFiles(event.dataTransfer?.files ?? null));
+bindDropzone(baseDropzone, handleBaseFiles);
 fileInput.addEventListener('change', () => handleOverlayFiles(fileInput.files));
-
-for (const eventName of ['dragenter', 'dragover']) {
-  dropzone.addEventListener(eventName, (event) => {
-    event.preventDefault();
-    dropzone.classList.add('is-dragging');
-  });
-}
-
-for (const eventName of ['dragleave', 'drop']) {
-  dropzone.addEventListener(eventName, (event) => {
-    event.preventDefault();
-    dropzone.classList.remove('is-dragging');
-  });
-}
-
-dropzone.addEventListener('drop', (event) => handleOverlayFiles(event.dataTransfer?.files ?? null));
+bindDropzone(dropzone, handleOverlayFiles);
 
 for (const zone of [baseDropzone, dropzone]) {
   for (const eventName of ['pointerenter', 'pointerdown', 'focusin']) {

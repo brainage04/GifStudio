@@ -98,13 +98,27 @@ html:root {
   margin-block-start: var(--editor-control-gap);
 }
 
-input[type='url'] {
+.option-controls {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.option-hints {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--foreground2);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+input[type='url'],
+select {
   width: 100%;
   min-width: 0;
   min-height: var(--control-height);
   border: 1px solid var(--control-border);
   background: var(--control-bg);
   color: var(--foreground0);
+  font: inherit;
   padding: 0.6rem 0.7rem;
 }
 
@@ -278,7 +292,8 @@ input[type='checkbox'] {
 
 @media (max-width: 620px) {
   .url-loader,
-  .controls {
+  .controls,
+  .option-controls {
     grid-template-columns: 1fr;
   }
 
