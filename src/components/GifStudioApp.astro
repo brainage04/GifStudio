@@ -95,15 +95,20 @@ const overlayMax = 400 * MAX_OVERLAY_SCALE;
 
         <p class="selected-file" id="selected-file" aria-live="polite">Using default overlay image.</p>
         <div class="preview-frame overlay-preview" id="overlay-preview" hidden>
-          <img
-            id="overlay-preview-image"
-            src={overlayImage}
-            alt="Selected overlay preview"
-            width="400"
-            height="400"
-            data-managed-loading
-          />
+          <div class="crop-stage" id="overlay-crop-stage">
+            <img
+              id="overlay-preview-image"
+              src={overlayImage}
+              alt="Selected overlay preview"
+              width="400"
+              height="400"
+              draggable="false"
+              data-managed-loading
+            />
+            <div class="crop-box" id="overlay-crop-box" hidden></div>
+          </div>
         </div>
+        <p class="crop-hint">Drag the box or its handles to crop; Shift keeps the proportions.</p>
       </div>
     </TerminalPanel>
   </div>
@@ -122,15 +127,17 @@ const overlayMax = 400 * MAX_OVERLAY_SCALE;
           data-managed-loading
         />
         <div class="stage-overlay" id="stage-overlay" hidden>
-          <img
-            id="overlay-image"
-            src={overlayImage}
-            alt="Overlay placement preview"
-            width="400"
-            height="400"
-            draggable="false"
-            data-managed-loading
-          />
+          <div class="box-clip">
+            <img
+              id="overlay-image"
+              src={overlayImage}
+              alt="Overlay placement preview"
+              width="400"
+              height="400"
+              draggable="false"
+              data-managed-loading
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -1,8 +1,8 @@
 # GifStudio
 
-Browser-based GIF compositor for selecting a base GIF or image, positioning a GIF or image overlay, rendering with FFmpeg WebAssembly, and downloading the result without uploading source files.
+Browser-based GIF compositor for selecting a base GIF or image, cropping and positioning a GIF or image overlay, rendering with FFmpeg WebAssembly, and downloading the result without uploading source files.
 
-The **Who is this** page (`/who-is-this/`) remakes the "who is this kid?" GIF: it puts a picture over the kid's face and swaps "kid" in both captions for FOID or MOID. The picture's size, crop and shape can be adjusted.
+The **Who is this** page (`/who-is-this/`) remakes the "who is this kid?" GIF: it puts a picture over the kid's face and swaps "kid" in both captions for MOID or FOID. The picture can be cropped, resized and moved relative to the face, and masked to a circle, a square or its own transparency.
 
 ## Requirements
 

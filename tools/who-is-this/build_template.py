@@ -15,6 +15,8 @@ browser (src/lib/whoIsThis.ts) only has to resize, regrade and paste the picture
   public/assets/who-is-this/overlays.png
                  RGBA: per word, everything drawn over the picture - the original caption and arrow
                  pixels, the new word (Montserrat at weight 850) with its glow, and the copied '*'
+  public/assets/who-is-this/editor-frame.jpg
+                 the last frame with a tracked face, the backdrop the page places the picture on
 
 Reads public/assets/who-is-this/who_is_this_kid.gif and tools/who-is-this/Montserrat.ttf. Requires
 ffmpeg on PATH (the nix-shell line provides it).
@@ -324,11 +326,15 @@ def main():
                 entry['overlays'][word] = overlays.add(x0, y0, np.ascontiguousarray(rgba[y0:y1, x0:x1]))
         out.append(entry)
 
+    editor_frame = max(sm)
+    Image.fromarray(np.ascontiguousarray(frames[editor_frame][..., ::-1])).save(
+        os.path.join(OUT, 'editor-frame.jpg'), quality=90)
     template = {
         'width': W, 'height': H, 'fps': FPS, 'words': list(WORDS),
         'source': 'who_is_this_kid.gif',
         'patches': {'file': 'patches.png', 'size': patches.save(os.path.join(OUT, 'patches.png'))},
         'overlays': {'file': 'overlays.png', 'size': overlays.save(os.path.join(OUT, 'overlays.png'))},
+        'editor': {'file': 'editor-frame.jpg', 'frame': editor_frame},
         'frames': out,
     }
     with open(TEMPLATE, 'w') as fh:

@@ -36,6 +36,8 @@ export interface WhoIsThisTemplate {
   source: string;
   patches: { file: string; size: [number, number] };
   overlays: { file: string; size: [number, number] };
+  /** A still of frame `frame` the page places the picture on. */
+  editor: { file: string; frame: number };
   frames: TemplateFrame[];
 }
 
@@ -56,14 +58,34 @@ export interface Picture {
   mask: Float32Array;
 }
 
+/** The square part of the picture that is used, in the picture's pixels. */
+export interface PictureCrop {
+  x: number;
+  y: number;
+  size: number;
+}
+
 export interface PictureOptions {
-  /** Fraction of the picture's shorter side kept, centred (0.7 = tighter on the face). */
-  zoom: number;
+  crop: PictureCrop;
   /** auto: the picture's own transparency if it has any, else a feathered circle. */
   shape: PictureShape;
   /** Pictures wider than this are shrunk to it first; see `pictureSizeLimit`. */
   maxSize: number;
 }
+
+/** Where the picture goes relative to the tracked face, in face widths. */
+export interface PicturePlacement {
+  /** Picture size; 1.6 covers the face with some margin, as the original script did. */
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+/** The largest centred square: the original script's crop. */
+export const centeredCrop = (width: number, height: number): PictureCrop => {
+  const size = Math.min(width, height);
+  return { x: Math.floor((width - size) / 2), y: Math.floor((height - size) / 2), size };
+};
 
 /**
  * The largest picture worth keeping for a paste `scale`: four times the biggest pasted size. Shrinking
@@ -73,21 +95,43 @@ export interface PictureOptions {
 export const pictureSizeLimit = (template: WhoIsThisTemplate, scale: number) =>
   4 * Math.max(...template.frames.map((frame) => (frame.face ? Math.trunc(frame.face[2] * scale) : 0)));
 
+/** What `auto` means for this crop: the picture's own transparency if over 2% of it is see-through. */
+export const resolvePictureShape = (
+  rgba: Uint8Array | Uint8ClampedArray,
+  width: number,
+  height: number,
+  { x, y, size }: PictureCrop,
+  shape: PictureShape,
+) => {
+  if (shape !== 'auto') {
+    return shape;
+  }
+  let translucent = 0;
+  for (let row = y; row < y + size; row += 1) {
+    for (let column = x; column < x + size; column += 1) {
+      const inside = column >= 0 && column < width && row >= 0 && row < height;
+      // Past the image edge counts as transparent, as Pillow's crop pads it.
+      if (!inside || (rgba[(row * width + column) * 4 + 3] ?? 0) / 255 < 0.99) {
+        translucent += 1;
+      }
+    }
+  }
+  return translucent / (size * size) > 0.02 ? 'alpha' : 'circle';
+};
+
 /** The original script's `load_pfp`, from RGBA pixels (EXIF rotation already applied by the browser). */
 export const preparePicture = (
   rgba: Uint8Array | Uint8ClampedArray,
   width: number,
   height: number,
-  { zoom, shape, maxSize }: PictureOptions,
+  { crop, shape, maxSize }: PictureOptions,
 ): Picture => {
-  const keep = Math.max(8, Math.trunc(Math.min(width, height) * zoom));
-  const left = Math.floor((width - keep) / 2);
-  const top = Math.floor((height - keep) / 2);
+  const keep = Math.max(1, crop.size);
+  const { x: left, y: top } = crop;
 
-  // Centre square crop; like Pillow's crop, anything past the image edge is transparent black.
+  // Like Pillow's crop, anything past the image edge is transparent black.
   let rgb = new Uint8Array(keep * keep * 3);
   let alpha = new Float32Array(keep * keep);
-  let translucent = 0;
   for (let y = 0; y < keep; y += 1) {
     for (let x = 0; x < keep; x += 1) {
       const sx = left + x;
@@ -100,12 +144,9 @@ export const preparePicture = (
         rgb[i * 3 + 2] = rgba[s + 2] ?? 0;
         alpha[i] = (rgba[s + 3] ?? 0) / 255;
       }
-      if ((alpha[i] ?? 0) < 0.99) {
-        translucent += 1;
-      }
     }
   }
-  const resolvedShape = shape === 'auto' ? (translucent / (keep * keep) > 0.02 ? 'alpha' : 'circle') : shape;
+  const resolvedShape = resolvePictureShape(rgba, width, height, crop, shape);
 
   let size = keep;
   if (keep > maxSize) {
@@ -166,7 +207,7 @@ const drawCrop = (
   }
 };
 
-/** The original script's `paste_face`, with the regrade taken from the template. */
+/** The original script's `paste_face`, moved by the placement's offsets, with the template's regrade. */
 const pastePicture = (
   frame: Uint8Array,
   width: number,
@@ -174,12 +215,12 @@ const pastePicture = (
   picture: Picture,
   face: [number, number, number],
   regrade: [number, number][] | undefined,
-  scale: number,
+  { scale, offsetX, offsetY }: PicturePlacement,
 ) => {
   const [cx, cy, s] = face;
   const size = Math.max(4, Math.trunc(s * scale));
-  const x0 = roundHalfEven(cx - size / 2);
-  const y0 = roundHalfEven(cy - size / 2 - s * 0.08);
+  const x0 = roundHalfEven(cx + offsetX * s - size / 2);
+  const y0 = roundHalfEven(cy + offsetY * s - size / 2 - s * 0.08);
   const sprite = resizeArea(picture.rgb, picture.size, picture.size, 3, size, size);
   const mask = resizeArea(picture.mask, picture.size, picture.size, 1, size, size);
 
@@ -203,7 +244,7 @@ export const composeFrame = (
   pixels: TemplatePixels,
   index: number,
   picture: Picture,
-  { scale, word }: { scale: number; word: string },
+  { placement, word }: { placement: PicturePlacement; word: string },
 ) => {
   const { width, height } = template;
   const entry = template.frames[index];
@@ -216,7 +257,7 @@ export const composeFrame = (
     drawCrop(frame, width, pixels.patches, template.patches.size[0], 3, entry.patch);
   }
   if (entry.face) {
-    pastePicture(frame, width, height, picture, entry.face, entry.regrade, scale);
+    pastePicture(frame, width, height, picture, entry.face, entry.regrade, placement);
   }
   const overlay = entry.overlays?.[word];
   if (overlay) {

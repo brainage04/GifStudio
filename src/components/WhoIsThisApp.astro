@@ -4,7 +4,9 @@ import { withBase } from '@brainage04/astro-shell/withBase';
 import template from '../data/whoIsThisTemplate.json';
 
 const sourceGif = withBase(`/assets/who-is-this/${template.source}`);
+const editorFrame = withBase(`/assets/who-is-this/${template.editor.file}`);
 const defaultPicture = withBase('/pfp.webp');
+const defaultWord = 'moid';
 const shapes = [
   { value: 'auto', label: 'Auto' },
   { value: 'circle', label: 'Circle' },
@@ -50,8 +52,19 @@ const shapes = [
 
         <p class="selected-file" id="picture-selected-file" aria-live="polite">Using default picture.</p>
         <div class="preview-frame overlay-preview">
-          <img id="picture-preview-image" src={defaultPicture} alt="Selected picture" width="400" height="400" />
+          <div class="crop-stage" id="picture-crop-stage">
+            <img
+              id="picture-preview-image"
+              src={defaultPicture}
+              alt="Selected picture"
+              width="400"
+              height="400"
+              draggable="false"
+            />
+            <div class="crop-box" id="picture-crop-box" data-aspect="locked" hidden></div>
+          </div>
         </div>
+        <p class="crop-hint">Drag the square or its corners to choose the part of the picture to use.</p>
       </div>
     </TerminalPanel>
 
@@ -59,13 +72,19 @@ const shapes = [
       <div class="panel-copy">
         <p>
           Puts the picture over the kid's face in the "who is this kid?" GIF and swaps "kid" in both captions for the
-          chosen word. Non-square pictures are cropped to their centre.
+          chosen word.
         </p>
         <div class="controls option-controls" role="group" aria-label="Remake options">
           <label for="word-select">
             Word
             <select id="word-select">
-              {template.words.map((word) => <option value={word}>{word.toUpperCase()}</option>)}
+              {
+                template.words.map((word) => (
+                  <option value={word} selected={word === defaultWord}>
+                    {word.toUpperCase()}
+                  </option>
+                ))
+              }
             </select>
           </label>
           <label for="shape-select">
@@ -74,60 +93,100 @@ const shapes = [
               {shapes.map((shape) => <option value={shape.value}>{shape.label}</option>)}
             </select>
           </label>
-          <label for="scale-input">
-            Size
-            <input
-              id="scale-input"
-              type="number"
-              min="0.5"
-              max="4"
-              step="0.1"
-              value="1.6"
-              required
-              aria-describedby="scale-hint"
-            />
-          </label>
-          <label for="zoom-input">
-            Zoom
-            <input
-              id="zoom-input"
-              type="number"
-              min="0.1"
-              max="1"
-              step="0.05"
-              value="1"
-              required
-              aria-describedby="zoom-hint"
-            />
-          </label>
         </div>
-        <ul class="option-hints">
-          <li id="shape-hint">Auto uses the picture's transparency when it has any, otherwise a feathered circle.</li>
-          <li id="scale-hint">Size is relative to the kid's face; 1.6 covers it with some margin.</li>
-          <li id="zoom-hint">Zoom keeps that fraction of the picture, centred; 0.7 crops tighter on a face.</li>
-        </ul>
+        <p class="crop-hint" id="shape-hint">
+          Auto uses the picture's transparency when it has any, otherwise a feathered circle.
+        </p>
       </div>
     </TerminalPanel>
   </div>
 
-  <TerminalPanel title="Result" class="editor-panel">
-    <div class="preview-frame result-frame">
-      <img id="result-image" src={sourceGif} alt="The remade GIF" width={template.width} height={template.height} />
-    </div>
+  <div class="studio-assets">
+    <TerminalPanel title="Editor" class="editor-panel">
+      <div class="preview-frame overlay-editor">
+        <div class="placement-stage" id="placement-stage">
+          <img
+            class="stage-base"
+            src={editorFrame}
+            alt="The GIF's last frame, where the picture is placed"
+            width={template.width}
+            height={template.height}
+            draggable="false"
+          />
+          <div class="stage-overlay" id="stage-overlay" data-aspect="locked" hidden>
+            <div class="box-clip">
+              <img id="stage-picture" src={defaultPicture} alt="" width="400" height="400" draggable="false" />
+            </div>
+          </div>
+        </div>
+      </div>
 
-    <div class="panel-actions editor-actions result-actions">
-      <button
-        class="action-button download-button disabled"
-        id="download-button"
-        type="button"
-        aria-disabled="true"
-        disabled>Download GIF</button
-      >
-      <a id="download-link" hidden aria-hidden="true" tabindex="-1"></a>
-    </div>
+      <div class="controls placement-controls" role="group" aria-label="Picture placement">
+        <label for="scale-input">
+          Size
+          <input
+            id="scale-input"
+            type="number"
+            min="0.5"
+            max="4"
+            step="0.01"
+            value="1.6"
+            required
+            aria-describedby="placement-hint"
+          />
+        </label>
+        <label for="offset-x-input">
+          Offset X %
+          <input
+            id="offset-x-input"
+            type="number"
+            min="-200"
+            max="200"
+            step="1"
+            value="0"
+            required
+            aria-describedby="placement-hint"
+          />
+        </label>
+        <label for="offset-y-input">
+          Offset Y %
+          <input
+            id="offset-y-input"
+            type="number"
+            min="-200"
+            max="200"
+            step="1"
+            value="0"
+            required
+            aria-describedby="placement-hint"
+          />
+        </label>
+      </div>
+      <p class="crop-hint" id="placement-hint">
+        Drag the picture or its corners. It follows the kid's face through the GIF: Size is relative to the face (1.6
+        covers it with some margin) and the offsets move it by a share of the face's width.
+      </p>
+    </TerminalPanel>
 
-    <p class="status" id="status" aria-live="polite" hidden></p>
-  </TerminalPanel>
+    <TerminalPanel title="Result" class="editor-panel">
+      <div class="preview-frame result-frame">
+        <img id="result-image" src={sourceGif} alt="The remade GIF" width={template.width} height={template.height} />
+      </div>
+
+      <div class="panel-actions editor-actions result-actions">
+        <button
+          class="action-button download-button disabled"
+          id="download-button"
+          type="button"
+          aria-disabled="true"
+          disabled>Download GIF</button
+        >
+        <a id="download-link" hidden aria-hidden="true" tabindex="-1"></a>
+      </div>
+
+      <p class="status" id="status" aria-live="polite" hidden></p>
+    </TerminalPanel>
+  </div>
 </div>
 
 <script src="../scripts/whoIsThis.ts"></script>

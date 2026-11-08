@@ -1,6 +1,8 @@
 import { fetchFile } from '@ffmpeg/util';
 import { decodeAnimationFrames, frameSequenceInput } from '../lib/decodedFrames';
+import { moveBoxInside, type Box } from '../lib/boxGeometry';
 import { clampOverlayDimension, maxOverlayDimension, MIN_OVERLAY_DIMENSION } from '../lib/placement';
+import { createBoxEditor, showCrop } from './boxEditor';
 import {
   appBase,
   bindDropzone,
@@ -30,6 +32,8 @@ const placementStage = requireElement('placement-stage', HTMLDivElement);
 const stageBase = requireElement('stage-base', HTMLImageElement);
 const stageOverlay = requireElement('stage-overlay', HTMLDivElement);
 const overlayImage = requireElement('overlay-image', HTMLImageElement);
+const overlayCropStage = requireElement('overlay-crop-stage', HTMLDivElement);
+const overlayCropBox = requireElement('overlay-crop-box', HTMLDivElement);
 const handlesToggle = requireElement('handles-toggle', HTMLInputElement);
 const statusText = requireElement('status', HTMLParagraphElement);
 const downloadLink = requireElement('download-link', HTMLAnchorElement);
@@ -39,38 +43,7 @@ const yInput = requireElement('y-input', HTMLInputElement);
 const widthInput = requireElement('width-input', HTMLInputElement);
 const heightInput = requireElement('height-input', HTMLInputElement);
 
-const resizeDirections = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const;
-type ResizeDirection = (typeof resizeDirections)[number];
-
-type Placement = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-type ActivePointer =
-  | {
-      mode: 'drag';
-      pointerId: number;
-      startClientX: number;
-      startClientY: number;
-      startX: number;
-      startY: number;
-      stageScale: number;
-    }
-  | {
-      mode: 'resize';
-      direction: ResizeDirection;
-      pointerId: number;
-      startClientX: number;
-      startClientY: number;
-      startX: number;
-      startY: number;
-      startWidth: number;
-      startHeight: number;
-      stageScale: number;
-    };
+type Placement = Box;
 
 /** One replaceable source (base or overlay); each new selection supersedes the previous one. */
 type SourceRequests = {
@@ -82,21 +55,6 @@ type SourceRequests = {
   fallbackName: string;
 };
 
-const resizeHandles: Partial<Record<ResizeDirection, HTMLDivElement>> = {};
-const isResizeDirection = (value: string | undefined): value is ResizeDirection => {
-  return resizeDirections.some((direction) => direction === value);
-};
-
-for (const direction of resizeDirections) {
-  const handle = document.createElement('div');
-  handle.className = `resize-handle resize-handle-${direction}`;
-  handle.id = `resize-handle-${direction}`;
-  handle.dataset.direction = direction;
-  handle.setAttribute('aria-hidden', 'true');
-  resizeHandles[direction] = handle;
-  stageOverlay.append(handle);
-}
-
 let overlayFile: File | null = null;
 let overlayPreviewUrl: string | null = null;
 let baseFile: File | null = null;
@@ -105,7 +63,8 @@ let basePreviewUrl: string | null = null;
 let resultUrl: string | null = null;
 let overlayNaturalWidth = 0;
 let overlayNaturalHeight = 0;
-let activePointer: ActivePointer | null = null;
+/** The part of the overlay that is used, in its natural pixels; the whole overlay until cropped. */
+let overlayCrop: Box = { x: 0, y: 0, width: 0, height: 0 };
 let autoRenderTimer: number | null = null;
 let renderController: AbortController | null = null;
 let renderSequence = 0;
@@ -186,13 +145,13 @@ const baseSize = () => ({
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
-const maxOverlayWidth = () => maxOverlayDimension(overlayNaturalWidth);
-const maxOverlayHeight = () => maxOverlayDimension(overlayNaturalHeight);
+const maxOverlayWidth = () => maxOverlayDimension(overlayCrop.width);
+const maxOverlayHeight = () => maxOverlayDimension(overlayCrop.height);
 
 const normalizePlacement = ({ x, y, width, height }: Placement): Placement => {
   const size = baseSize();
-  const safeWidth = clampOverlayDimension(width, overlayNaturalWidth);
-  const safeHeight = clampOverlayDimension(height, overlayNaturalHeight);
+  const safeWidth = clampOverlayDimension(width, overlayCrop.width);
+  const safeHeight = clampOverlayDimension(height, overlayCrop.height);
   const minVisibleX = Math.min(safeWidth, Math.max(20, size.width * 0.05));
   const minVisibleY = Math.min(safeHeight, Math.max(20, size.height * 0.05));
 
@@ -205,7 +164,7 @@ const normalizePlacement = ({ x, y, width, height }: Placement): Placement => {
 };
 
 const syncPlacementPreview = () => {
-  if (!overlayFile || !overlayNaturalWidth || !overlayNaturalHeight) {
+  if (!overlayFile || !overlayCrop.width || !overlayCrop.height) {
     stageOverlay.hidden = true;
     return;
   }
@@ -216,14 +175,9 @@ const syncPlacementPreview = () => {
   }
 
   const size = baseSize();
-  const placement = normalizePlacement(placementValues());
-  const scale = stageRect.width / size.width;
-
   stageOverlay.hidden = false;
-  stageOverlay.style.left = `${placement.x * scale}px`;
-  stageOverlay.style.top = `${placement.y * scale}px`;
-  stageOverlay.style.width = `${placement.width * scale}px`;
-  stageOverlay.style.height = `${placement.height * scale}px`;
+  placementEditor.layout(normalizePlacement(placementValues()));
+  showCrop(overlayImage, overlayCrop, { width: overlayNaturalWidth, height: overlayNaturalHeight });
   placementStage.style.aspectRatio = `${size.width} / ${size.height}`;
 };
 
@@ -355,7 +309,17 @@ const renderGif = async () => {
     // Typed values can be fractional or past the resize limit; FFmpeg gets the same clamped box the editor shows.
     const placement = normalizePlacement(placementValues());
     const [x, y, width, height] = [placement.x, placement.y, placement.width, placement.height].map(Math.round);
-    const filterGraph = `[1:v]scale=${width}:${height}[overlay];[0:v][overlay]overlay=${x}:${y},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`;
+    const [cropX, cropY, cropWidth, cropHeight] = [
+      overlayCrop.x,
+      overlayCrop.y,
+      overlayCrop.width,
+      overlayCrop.height,
+    ].map(Math.round);
+    const crop =
+      cropWidth === overlayNaturalWidth && cropHeight === overlayNaturalHeight
+        ? ''
+        : `crop=${cropWidth}:${cropHeight}:${cropX}:${cropY},`;
+    const filterGraph = `[1:v]${crop}scale=${width}:${height}[overlay];[0:v][overlay]overlay=${x}:${y},split[gif][palette_src];[palette_src]palettegen[palette];[gif][palette]paletteuse`;
     // FFmpeg transfers the buffer to its worker, so every FFmpeg call reads the bytes again.
     const overlaySource = async () => ({ name: activeOverlayFile.name, data: await fetchFile(activeOverlayFile) });
 
@@ -571,149 +535,63 @@ const updatePlacementInputs = (placement: Placement, options: { schedule?: boole
   }
 };
 
-const beginDrag = (event: PointerEvent) => {
-  const target = event.target;
-  if (!overlayFile || (target instanceof HTMLElement && target.classList.contains('resize-handle'))) {
-    return;
-  }
-
-  const stageRect = placementStage.getBoundingClientRect();
-  const size = baseSize();
-  const placement = placementValues();
-  activePointer = {
-    mode: 'drag',
-    pointerId: event.pointerId,
-    startClientX: event.clientX,
-    startClientY: event.clientY,
-    startX: placement.x,
-    startY: placement.y,
-    stageScale: stageRect.width / size.width,
-  };
-  stageOverlay.setPointerCapture(event.pointerId);
-};
-
-const beginResize = (event: PointerEvent) => {
-  if (!overlayFile || !overlayNaturalWidth || !overlayNaturalHeight) {
-    return;
-  }
-
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-
-  const direction = target.dataset.direction;
-  if (!isResizeDirection(direction)) {
-    return;
-  }
-
-  event.stopPropagation();
-  event.preventDefault();
-  const stageRect = placementStage.getBoundingClientRect();
-  const size = baseSize();
-  const placement = placementValues();
-  activePointer = {
-    mode: 'resize',
-    direction,
-    pointerId: event.pointerId,
-    startClientX: event.clientX,
-    startClientY: event.clientY,
-    startX: placement.x,
-    startY: placement.y,
-    startWidth: placement.width,
-    startHeight: placement.height,
-    stageScale: stageRect.width / size.width,
-  };
-  target.setPointerCapture(event.pointerId);
-};
-
-const handlePointerMove = (event: PointerEvent) => {
-  if (!activePointer || event.pointerId !== activePointer.pointerId) {
-    return;
-  }
-
-  if (activePointer.mode === 'drag') {
-    const deltaX = (event.clientX - activePointer.startClientX) / activePointer.stageScale;
-    const deltaY = (event.clientY - activePointer.startClientY) / activePointer.stageScale;
-    const current = placementValues();
-    updatePlacementInputs(
-      {
-        x: activePointer.startX + deltaX,
-        y: activePointer.startY + deltaY,
-        width: current.width,
-        height: current.height,
-      },
-      { schedule: false },
-    );
-    return;
-  }
-
-  const deltaX = (event.clientX - activePointer.startClientX) / activePointer.stageScale;
-  const deltaY = (event.clientY - activePointer.startClientY) / activePointer.stageScale;
-  const direction = activePointer.direction;
-  let x = activePointer.startX;
-  let y = activePointer.startY;
-  let width = activePointer.startWidth;
-  let height = activePointer.startHeight;
-
-  if (direction.includes('e')) {
-    width = clamp(activePointer.startWidth + deltaX, MIN_OVERLAY_DIMENSION, maxOverlayWidth());
-  }
-
-  if (direction.includes('s')) {
-    height = clamp(activePointer.startHeight + deltaY, MIN_OVERLAY_DIMENSION, maxOverlayHeight());
-  }
-
-  if (direction.includes('w')) {
-    width = clamp(activePointer.startWidth - deltaX, MIN_OVERLAY_DIMENSION, maxOverlayWidth());
-    x = activePointer.startX + (activePointer.startWidth - width);
-  }
-
-  if (direction.includes('n')) {
-    height = clamp(activePointer.startHeight - deltaY, MIN_OVERLAY_DIMENSION, maxOverlayHeight());
-    y = activePointer.startY + (activePointer.startHeight - height);
-  }
-
-  if (event.shiftKey && direction.length === 2 && overlayNaturalWidth && overlayNaturalHeight) {
-    const aspectRatio = overlayNaturalWidth / overlayNaturalHeight;
-    const anchorX = direction.includes('w') ? activePointer.startX + activePointer.startWidth : activePointer.startX;
-    const anchorY = direction.includes('n') ? activePointer.startY + activePointer.startHeight : activePointer.startY;
-    const widthChange = Math.abs(width - activePointer.startWidth);
-    const heightChange = Math.abs(height - activePointer.startHeight);
-
-    if (widthChange >= heightChange) {
-      width = clamp(width, MIN_OVERLAY_DIMENSION, maxOverlayWidth());
-      height = clamp(width / aspectRatio, MIN_OVERLAY_DIMENSION, maxOverlayHeight());
-      width = clamp(height * aspectRatio, MIN_OVERLAY_DIMENSION, maxOverlayWidth());
+const placementEditor = createBoxEditor({
+  stage: placementStage,
+  element: stageOverlay,
+  space: baseSize,
+  current: () => normalizePlacement(placementValues()),
+  resizeOptions: (_start, shiftKey) => ({
+    limits: {
+      minWidth: MIN_OVERLAY_DIMENSION,
+      minHeight: MIN_OVERLAY_DIMENSION,
+      maxWidth: maxOverlayWidth(),
+      maxHeight: maxOverlayHeight(),
+    },
+    // Shift keeps the (cropped) overlay's own proportions.
+    aspect: shiftKey ? overlayCrop.width / overlayCrop.height : null,
+  }),
+  move: (start, dx, dy) => ({ ...start, x: start.x + dx, y: start.y + dy }),
+  onChange: (box, done) => {
+    if (done) {
+      scheduleRender(0);
     } else {
-      height = clamp(height, MIN_OVERLAY_DIMENSION, maxOverlayHeight());
-      width = clamp(height * aspectRatio, MIN_OVERLAY_DIMENSION, maxOverlayWidth());
-      height = clamp(width / aspectRatio, MIN_OVERLAY_DIMENSION, maxOverlayHeight());
+      updatePlacementInputs(box, { schedule: false });
     }
+  },
+  enabled: () => Boolean(overlayFile),
+});
 
-    x = direction.includes('w') ? anchorX - width : anchorX;
-    y = direction.includes('n') ? anchorY - height : anchorY;
-  }
+const overlayNaturalSize = () => ({ width: overlayNaturalWidth, height: overlayNaturalHeight });
 
-  updatePlacementInputs({ x, y, width, height }, { schedule: false });
-};
+const cropEditor = createBoxEditor({
+  stage: overlayCropStage,
+  element: overlayCropBox,
+  space: overlayNaturalSize,
+  current: () => overlayCrop,
+  resizeOptions: (start, shiftKey) => ({
+    limits: {
+      minWidth: Math.min(MIN_OVERLAY_DIMENSION, overlayNaturalWidth),
+      minHeight: Math.min(MIN_OVERLAY_DIMENSION, overlayNaturalHeight),
+      maxWidth: overlayNaturalWidth,
+      maxHeight: overlayNaturalHeight,
+    },
+    contain: overlayNaturalSize(),
+    aspect: shiftKey ? start.width / start.height : null,
+  }),
+  move: (start, dx, dy) => moveBoxInside(start, dx, dy, overlayNaturalSize()),
+  onChange: (box, done) => setOverlayCrop(box, done),
+  enabled: () => Boolean(overlayFile && overlayNaturalWidth),
+});
 
-const endPointerInteraction = (event: PointerEvent) => {
-  if (!activePointer || event.pointerId !== activePointer.pointerId) {
-    return;
-  }
-
-  if (activePointer.mode === 'drag') {
-    stageOverlay.releasePointerCapture(event.pointerId);
-  } else {
-    const handle = resizeHandles[activePointer.direction];
-    if (handle?.hasPointerCapture(event.pointerId)) {
-      handle.releasePointerCapture(event.pointerId);
-    }
-  }
-  activePointer = null;
-  scheduleRender(0);
-};
+/** Use `crop` of the overlay; the placed overlay keeps its width and takes the crop's proportions. */
+function setOverlayCrop(crop: Box, done: boolean) {
+  const placement = placementValues();
+  overlayCrop = crop;
+  cropEditor.layout(crop);
+  widthInput.max = String(maxOverlayWidth());
+  heightInput.max = String(maxOverlayHeight());
+  updatePlacementInputs({ ...placement, height: (placement.width * crop.height) / crop.width }, { schedule: done });
+}
 
 baseFileInput.addEventListener('change', () => handleBaseFiles(baseFileInput.files));
 downloadButton.addEventListener('click', () => {
@@ -760,6 +638,9 @@ stageBase.addEventListener('load', () => {
 overlayImage.addEventListener('load', () => {
   overlayNaturalWidth = overlayImage.naturalWidth;
   overlayNaturalHeight = overlayImage.naturalHeight;
+  overlayCrop = { x: 0, y: 0, width: overlayNaturalWidth, height: overlayNaturalHeight };
+  overlayCropBox.hidden = false;
+  cropEditor.layout(overlayCrop);
   widthInput.max = String(maxOverlayWidth());
   heightInput.max = String(maxOverlayHeight());
   widthInput.value = String(Math.round(overlayNaturalWidth / 2));
@@ -769,22 +650,16 @@ overlayImage.addEventListener('load', () => {
   queueImageLoadingSync();
 });
 
+// The preview's rendered size is only known once it has loaded.
+overlayPreviewImage.addEventListener('load', () => cropEditor.layout(overlayCrop));
+
 for (const input of [xInput, yInput, widthInput, heightInput]) {
   input.addEventListener('input', () => updatePlacementInputs(placementValues()));
 }
 
-stageOverlay.addEventListener('pointerdown', beginDrag);
-for (const direction of resizeDirections) {
-  const handle = resizeHandles[direction];
-  if (handle) {
-    handle.addEventListener('pointerdown', beginResize);
-  }
-}
-window.addEventListener('pointermove', handlePointerMove);
-window.addEventListener('pointerup', endPointerInteraction);
-window.addEventListener('pointercancel', endPointerInteraction);
 window.addEventListener('resize', () => {
   syncPlacementPreview();
+  cropEditor.layout(overlayCrop);
   queueImageLoadingSync();
 });
 window.addEventListener('scroll', queueImageLoadingSync, { passive: true });

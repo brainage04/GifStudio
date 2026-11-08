@@ -102,12 +102,8 @@ html:root {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.option-hints {
-  display: grid;
-  gap: 0.3rem;
-  color: var(--foreground2);
-  font-size: 0.88rem;
-  line-height: 1.4;
+.placement-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 input[type='url'],
@@ -120,6 +116,21 @@ select {
   color: var(--foreground0);
   font: inherit;
   padding: 0.6rem 0.7rem;
+}
+
+/* The native arrow adds its own inset; drawing one keeps the text lined up with the other fields. */
+select {
+  appearance: none;
+  padding-inline-end: 2.2rem;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    right 1.05rem center,
+    right 0.75rem center;
+  background-size: 0.3rem 0.3rem;
+  background-repeat: no-repeat;
+  cursor: pointer;
 }
 
 input[type='url']::placeholder {
@@ -190,12 +201,55 @@ input[type='url']::placeholder {
   display: none;
 }
 
-.stage-overlay img {
+/* The box shows only the crop of its image: a scaled, shifted image inside a clipping layer. */
+.box-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.stage-overlay[data-shape='circle'] .box-clip {
+  border-radius: 50%;
+}
+
+.preview-frame .box-clip img {
+  position: absolute;
   display: block;
-  width: 100%;
-  height: 100%;
+  max-width: none;
   user-select: none;
   pointer-events: none;
+}
+
+.crop-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.crop-stage img {
+  user-select: none;
+  pointer-events: none;
+}
+
+.crop-box {
+  position: absolute;
+  cursor: move;
+  touch-action: none;
+  outline: 1px solid var(--accent-primary);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--background0) 62%, transparent);
+}
+
+.crop-box[hidden] {
+  display: none;
+}
+
+.crop-hint {
+  color: var(--foreground2);
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
 .resize-handle {
@@ -208,7 +262,11 @@ input[type='url']::placeholder {
   touch-action: none;
 }
 
-.stage-overlay[data-resize-handles='hidden'] .resize-handle {
+.stage-overlay[data-resize-handles='hidden'] .resize-handle,
+[data-aspect='locked'] > .resize-handle-n,
+[data-aspect='locked'] > .resize-handle-e,
+[data-aspect='locked'] > .resize-handle-s,
+[data-aspect='locked'] > .resize-handle-w {
   display: none;
 }
 
@@ -267,6 +325,28 @@ input[type='url']::placeholder {
   cursor: nwse-resize;
 }
 
+/* A crop box fills its clipped stage edge to edge, so its handles sit just inside it. */
+.crop-box > .resize-handle-n,
+.crop-box > .resize-handle-ne,
+.crop-box > .resize-handle-nw {
+  top: 0;
+}
+.crop-box > .resize-handle-s,
+.crop-box > .resize-handle-se,
+.crop-box > .resize-handle-sw {
+  bottom: 0;
+}
+.crop-box > .resize-handle-e,
+.crop-box > .resize-handle-ne,
+.crop-box > .resize-handle-se {
+  right: 0;
+}
+.crop-box > .resize-handle-w,
+.crop-box > .resize-handle-nw,
+.crop-box > .resize-handle-sw {
+  left: 0;
+}
+
 .editor-actions {
   justify-content: space-between;
   margin-block-start: var(--editor-control-gap, 1rem);
@@ -293,7 +373,8 @@ input[type='checkbox'] {
 @media (max-width: 620px) {
   .url-loader,
   .controls,
-  .option-controls {
+  .option-controls,
+  .placement-controls {
     grid-template-columns: 1fr;
   }
 

@@ -1,12 +1,17 @@
 import templateJson from '../data/whoIsThisTemplate.json';
+import { moveBoxInside, type Box } from '../lib/boxGeometry';
 import {
+  centeredCrop,
   composeFrame,
   pictureShapes,
   pictureSizeLimit,
   preparePicture,
+  resolvePictureShape,
+  type PicturePlacement,
   type TemplatePixels,
   type WhoIsThisTemplate,
 } from '../lib/whoIsThis';
+import { createBoxEditor, showCrop } from './boxEditor';
 import {
   appBase,
   bindDropzone,
@@ -28,10 +33,16 @@ const urlInput = requireElement('picture-url-input', HTMLInputElement);
 const urlLoadButton = requireElement('picture-url-load-button', HTMLButtonElement);
 const selectedFile = requireElement('picture-selected-file', HTMLParagraphElement);
 const previewImage = requireElement('picture-preview-image', HTMLImageElement);
+const cropStage = requireElement('picture-crop-stage', HTMLDivElement);
+const cropBox = requireElement('picture-crop-box', HTMLDivElement);
 const wordSelect = requireElement('word-select', HTMLSelectElement);
 const shapeSelect = requireElement('shape-select', HTMLSelectElement);
+const placementStage = requireElement('placement-stage', HTMLDivElement);
+const stageOverlay = requireElement('stage-overlay', HTMLDivElement);
+const stagePicture = requireElement('stage-picture', HTMLImageElement);
 const scaleInput = requireElement('scale-input', HTMLInputElement);
-const zoomInput = requireElement('zoom-input', HTMLInputElement);
+const offsetXInput = requireElement('offset-x-input', HTMLInputElement);
+const offsetYInput = requireElement('offset-y-input', HTMLInputElement);
 const resultImage = requireElement('result-image', HTMLImageElement);
 const downloadButton = requireElement('download-button', HTMLButtonElement);
 const downloadLink = requireElement('download-link', HTMLAnchorElement);
@@ -40,6 +51,9 @@ const statusText = requireElement('status', HTMLParagraphElement);
 const assetUrl = (file: string) => `${appBase}assets/who-is-this/${file}`;
 const { renderer, resetLog, logDetail } = createRenderer();
 const frameBytes = template.width * template.height * 3;
+const templateSize = { width: template.width, height: template.height };
+// The editor shows one frame; the picture's box there maps to a placement relative to that frame's face.
+const [editorFaceX, editorFaceY, editorFace] = template.frames[template.editor.frame]?.face ?? [0, 0, 1];
 
 let pictureFile: File | null = null;
 let previewUrl: string | null = null;
@@ -52,6 +66,9 @@ let pictureRequest = 0;
 let pictureFetch: AbortController | null = null;
 let templatePixels: Promise<TemplatePixels> | null = null;
 let decodedPicture: { file: File; image: ImageData } | null = null;
+let pictureSize = { width: 0, height: 0 };
+/** The part of the picture that is used: a square in its natural pixels, centred until the reader crops. */
+let pictureCrop: Box = { x: 0, y: 0, width: 0, height: 0 };
 
 const setStatus = (message: string) => {
   statusText.textContent = message;
@@ -133,6 +150,121 @@ const readPicture = async (file: File) => {
   }
 };
 
+const roundedCrop = () => ({
+  x: Math.round(pictureCrop.x),
+  y: Math.round(pictureCrop.y),
+  size: Math.round(Math.min(pictureCrop.width, pictureCrop.height)),
+});
+
+const placementInputs = [scaleInput, offsetXInput, offsetYInput];
+
+const placementValues = (): PicturePlacement => ({
+  scale: Number(scaleInput.value),
+  offsetX: Number(offsetXInput.value) / 100,
+  offsetY: Number(offsetYInput.value) / 100,
+});
+
+/** The picture's box on the editor frame, as `pastePicture` places it (before its pixel rounding). */
+const placementBox = ({ scale, offsetX, offsetY }: PicturePlacement): Box => {
+  const size = editorFace * scale;
+  return {
+    x: editorFaceX + offsetX * editorFace - size / 2,
+    y: editorFaceY + offsetY * editorFace - editorFace * 0.08 - size / 2,
+    width: size,
+    height: size,
+  };
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+/** Write the placement a dragged box stands for into the inputs, within their limits. */
+const setPlacementFromBox = (box: Box) => {
+  const scale = clamp(box.width / editorFace, 0.5, 4);
+  const offsetX = (box.x + box.width / 2 - editorFaceX) / editorFace;
+  const offsetY = (box.y + box.height / 2 + editorFace * 0.08 - editorFaceY) / editorFace;
+  scaleInput.value = scale.toFixed(2);
+  offsetXInput.value = String(clamp(Math.round(offsetX * 100), -200, 200));
+  offsetYInput.value = String(clamp(Math.round(offsetY * 100), -200, 200));
+};
+
+const syncPlacement = () => {
+  stageOverlay.hidden = !pictureSize.width;
+  if (!pictureSize.width || placementInputs.some((input) => !input.validity.valid)) {
+    return;
+  }
+  placementEditor.layout(placementBox(placementValues()));
+  showCrop(stagePicture, pictureCrop, pictureSize);
+};
+
+/** Clip the editor's picture the way the render will mask it (auto needs the picture's pixels). */
+const syncPreviewShape = async () => {
+  const file = pictureFile;
+  const selected = pictureShapes.find((value) => value === shapeSelect.value) ?? 'auto';
+  let shape: string = selected;
+  if (selected === 'auto' && file && pictureSize.width) {
+    try {
+      const image = await readPicture(file);
+      shape = resolvePictureShape(image.data, image.width, image.height, roundedCrop(), 'auto');
+    } catch {
+      return; // the render reports undecodable pictures
+    }
+  }
+  if (file === pictureFile) {
+    stageOverlay.dataset.shape = shape;
+  }
+};
+
+const placementEditor = createBoxEditor({
+  stage: placementStage,
+  element: stageOverlay,
+  space: () => templateSize,
+  current: () => placementBox(placementValues()),
+  resizeOptions: () => ({
+    limits: {
+      minWidth: editorFace * 0.5,
+      minHeight: editorFace * 0.5,
+      maxWidth: editorFace * 4,
+      maxHeight: editorFace * 4,
+    },
+    aspect: 1,
+  }),
+  move: (start, dx, dy) => ({ ...start, x: start.x + dx, y: start.y + dy }),
+  onChange: (box, done) => {
+    setPlacementFromBox(box);
+    syncPlacement();
+    if (done) {
+      scheduleRender(0);
+    }
+  },
+  enabled: () => Boolean(pictureSize.width),
+});
+
+const cropEditor = createBoxEditor({
+  stage: cropStage,
+  element: cropBox,
+  space: () => pictureSize,
+  current: () => pictureCrop,
+  resizeOptions: () => {
+    const side = Math.min(pictureSize.width, pictureSize.height);
+    return {
+      limits: { minWidth: Math.min(16, side), minHeight: Math.min(16, side), maxWidth: side, maxHeight: side },
+      contain: pictureSize,
+      aspect: 1,
+    };
+  },
+  move: (start, dx, dy) => moveBoxInside(start, dx, dy, pictureSize),
+  onChange: (box, done) => {
+    pictureCrop = box;
+    cropEditor.layout(box);
+    syncPlacement();
+    if (done) {
+      void syncPreviewShape();
+      scheduleRender(0);
+    }
+  },
+  enabled: () => Boolean(pictureSize.width),
+});
+
 /** Disable the download while a new result is pending; the old one stays on screen until replaced. */
 const disableDownload = () => {
   downloadLink.removeAttribute('href');
@@ -166,19 +298,19 @@ const cancelRender = () => {
 };
 
 const render = async () => {
-  if (!pictureFile) {
+  if (!pictureFile || !pictureCrop.width) {
     return;
   }
   const file = pictureFile;
   cancelRender();
   disableDownload();
 
-  if (!scaleInput.validity.valid || !zoomInput.validity.valid) {
-    setStatus('Size must be between 0.5 and 4, and zoom between 0.1 and 1.');
+  if (placementInputs.some((input) => !input.validity.valid)) {
+    setStatus('Size must be between 0.5 and 4, and each offset between -200 and 200.');
     return;
   }
-  const scale = Number(scaleInput.value);
-  const zoom = Number(zoomInput.value);
+  const placement = placementValues();
+  const crop = roundedCrop();
   const word = wordSelect.value;
   const shape = pictureShapes.find((value) => value === shapeSelect.value) ?? 'auto';
 
@@ -199,9 +331,9 @@ const render = async () => {
     signal.throwIfAborted();
 
     const picture = preparePicture(image.data, image.width, image.height, {
-      zoom,
+      crop,
       shape,
-      maxSize: pictureSizeLimit(template, scale),
+      maxSize: pictureSizeLimit(template, placement.scale),
     });
     const frames = new Uint8Array(frameBytes * template.frames.length);
     for (let index = 0; index < template.frames.length; index += 1) {
@@ -213,7 +345,7 @@ const render = async () => {
         await promise;
         signal.throwIfAborted();
       }
-      frames.set(composeFrame(template, pixels, index, picture, { scale, word }), index * frameBytes);
+      frames.set(composeFrame(template, pixels, index, picture, { placement, word }), index * frameBytes);
     }
 
     setStatus('Encoding GIF...');
@@ -280,13 +412,13 @@ const setPicture = (file: File, label?: string) => {
   }
   previewUrl = URL.createObjectURL(file);
   previewImage.src = previewUrl;
+  stagePicture.src = previewUrl;
   const text = label ?? `${file.name} • ${Math.round(file.size / 1024)} KB`;
   // A polite live region: rewriting identical text would announce it again.
   if (selectedFile.textContent !== text) {
     selectedFile.textContent = text;
   }
   setStatus('');
-  scheduleRender(0);
 };
 
 const handleFiles = (files: File[] | FileList | null) => {
@@ -372,12 +504,35 @@ urlInput.addEventListener('keydown', (event) => {
 previewImage.addEventListener('error', () => {
   setStatus('That picture could not be decoded by this browser.');
 });
-for (const select of [wordSelect, shapeSelect]) {
-  select.addEventListener('change', () => scheduleRender(0));
+// A new picture is measured, centre-cropped and rendered once its preview has loaded.
+previewImage.addEventListener('load', () => {
+  if (!pictureFile) {
+    return;
+  }
+  pictureSize = { width: previewImage.naturalWidth, height: previewImage.naturalHeight };
+  const crop = centeredCrop(pictureSize.width, pictureSize.height);
+  pictureCrop = { x: crop.x, y: crop.y, width: crop.size, height: crop.size };
+  cropBox.hidden = false;
+  cropEditor.layout(pictureCrop);
+  syncPlacement();
+  void syncPreviewShape();
+  scheduleRender(0);
+});
+wordSelect.addEventListener('change', () => scheduleRender(0));
+shapeSelect.addEventListener('change', () => {
+  void syncPreviewShape();
+  scheduleRender(0);
+});
+for (const input of placementInputs) {
+  input.addEventListener('input', () => {
+    syncPlacement();
+    scheduleRender();
+  });
 }
-for (const input of [scaleInput, zoomInput]) {
-  input.addEventListener('input', () => scheduleRender());
-}
+window.addEventListener('resize', () => {
+  cropEditor.layout(pictureCrop);
+  syncPlacement();
+});
 downloadButton.addEventListener('click', () => {
   if (downloadLink.href) {
     downloadLink.click();
