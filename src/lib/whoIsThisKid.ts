@@ -3,7 +3,7 @@ import { gaussianBlur, resizeArea, roundHalfEven } from './pixelOps';
 /**
  * Remakes who_is_this_kid.gif with a picture over the kid's face and "KID" swapped for another word.
  *
- * tools/who-is-this/build_template.py did everything that does not depend on the picture: it tracked
+ * tools/who-is-this-kid/build_template.py did everything that does not depend on the picture: it tracked
  * the face, painted "KID" out (`patch`), fitted the end-of-clip colour regrade, and drew, for each
  * word, everything that sits over the face (`overlays`: the original caption and arrow pixels, the
  * new word and the copied '*'). Per frame this module draws, in order: source frame, patch, picture,
@@ -28,7 +28,7 @@ export interface TemplateFrame {
   overlays?: Record<string, SheetCrop>;
 }
 
-export interface WhoIsThisTemplate {
+export interface WhoIsThisKidTemplate {
   width: number;
   height: number;
   fps: number;
@@ -36,8 +36,8 @@ export interface WhoIsThisTemplate {
   source: string;
   patches: { file: string; size: [number, number] };
   overlays: { file: string; size: [number, number] };
-  /** A still of frame `frame` the page places the picture on. */
-  editor: { file: string; frame: number };
+  /** The frame the page places the picture on (its still is src/assets/who-is-this-kid/editor-frame.jpg). */
+  editor: { frame: number };
   frames: TemplateFrame[];
 }
 
@@ -94,7 +94,7 @@ export const centeredCrop = (width: number, height: number): PictureCrop => {
  * a phone photo to it first keeps each frame's resize and the edge feathering fast without visibly
  * changing the result.
  */
-export const pictureSizeLimit = (template: WhoIsThisTemplate, scale: number) =>
+export const pictureSizeLimit = (template: WhoIsThisKidTemplate, scale: number) =>
   4 * Math.max(...template.frames.map((frame) => (frame.face ? Math.trunc(frame.face[2] * scale) : 0)));
 
 /** What `auto` means for this crop: the picture's own transparency if over 2% of it is see-through. */
@@ -253,7 +253,7 @@ const pastePicture = (
 
 /** Frame `index` of the remake as RGB bytes. */
 export const composeFrame = (
-  template: WhoIsThisTemplate,
+  template: WhoIsThisKidTemplate,
   pixels: TemplatePixels,
   index: number,
   picture: Picture,

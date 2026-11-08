@@ -1,25 +1,26 @@
 #!/usr/bin/env nix-shell
 #!nix-shell -i python3 -p "python3.withPackages(ps: [ps.numpy ps.opencv4 ps.pillow])" ffmpeg
-"""Build the data the "Who is this" page needs to remake who_is_this_kid.gif in the browser.
+"""Build the data the WhoIsThisKid page needs to remake who_is_this_kid.gif in the browser.
 
-Usage: tools/who-is-this/build_template.py
+Usage: tools/who-is-this-kid/build_template.py
 
 The page pastes a visitor's picture over the kid's face and swaps "KID" in both captions for one of
 WORDS. Everything that does not depend on the picture is worked out here once and committed, so the
-browser (src/lib/whoIsThis.ts) only has to resize, regrade and paste the picture:
+browser (src/lib/whoIsThisKid.ts) only has to resize, regrade and paste the picture:
 
-  src/data/whoIsThisTemplate.json
+  src/data/whoIsThisKidTemplate.json
                  per frame: smoothed face box, colour regrade, where each sheet crop goes
-  public/assets/who-is-this/patches.png
+  public/assets/who-is-this-kid/patches.png
                  RGB: the caption frames with "KID" painted out (OpenCV inpainting), drawn under the picture
-  public/assets/who-is-this/overlays.png
+  public/assets/who-is-this-kid/overlays.png
                  RGBA: per word, everything drawn over the picture - the original caption and arrow
                  pixels, the new word (Montserrat at weight 850) with its glow, and the copied '*'
-  public/assets/who-is-this/editor-frame.jpg
+  src/assets/who-is-this-kid/editor-frame.jpg
                  the last frame with a tracked face, the backdrop the page places the picture on
+                 (Astro optimises it for display)
 
-Reads public/assets/who-is-this/who_is_this_kid.gif and tools/who-is-this/Montserrat.ttf. Requires
-ffmpeg on PATH (the nix-shell line provides it).
+Reads public/assets/who-is-this-kid/who_is_this_kid.gif and tools/who-is-this-kid/Montserrat.ttf.
+Requires ffmpeg on PATH (the nix-shell line provides it).
 """
 import json
 import os
@@ -32,8 +33,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
-OUT = os.path.join(ROOT, 'public', 'assets', 'who-is-this')
-TEMPLATE = os.path.join(ROOT, 'src', 'data', 'whoIsThisTemplate.json')
+OUT = os.path.join(ROOT, 'public', 'assets', 'who-is-this-kid')
+EDITOR_FRAME = os.path.join(ROOT, 'src', 'assets', 'who-is-this-kid', 'editor-frame.jpg')
+TEMPLATE = os.path.join(ROOT, 'src', 'data', 'whoIsThisKidTemplate.json')
 SOURCE = os.path.join(OUT, 'who_is_this_kid.gif')
 FONT = os.path.join(HERE, 'Montserrat.ttf')
 WORDS = ('foid', 'moid')
@@ -327,14 +329,13 @@ def main():
         out.append(entry)
 
     editor_frame = max(sm)
-    Image.fromarray(np.ascontiguousarray(frames[editor_frame][..., ::-1])).save(
-        os.path.join(OUT, 'editor-frame.jpg'), quality=90)
+    Image.fromarray(np.ascontiguousarray(frames[editor_frame][..., ::-1])).save(EDITOR_FRAME, quality=90)
     template = {
         'width': W, 'height': H, 'fps': FPS, 'words': list(WORDS),
         'source': 'who_is_this_kid.gif',
         'patches': {'file': 'patches.png', 'size': patches.save(os.path.join(OUT, 'patches.png'))},
         'overlays': {'file': 'overlays.png', 'size': overlays.save(os.path.join(OUT, 'overlays.png'))},
-        'editor': {'file': 'editor-frame.jpg', 'frame': editor_frame},
+        'editor': {'frame': editor_frame},
         'frames': out,
     }
     with open(TEMPLATE, 'w') as fh:

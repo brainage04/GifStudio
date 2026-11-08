@@ -1,9 +1,10 @@
 ---
 import TerminalPanel from '@brainage04/astro-shell/components/TerminalPanel.astro';
 import { withBase } from '@brainage04/astro-shell/withBase';
+import { Image } from 'astro:assets';
+import baseGif from '../assets/base/woman_is_talking.gif';
 import { MAX_OVERLAY_SCALE } from '../lib/placement';
 
-const baseGif = withBase('/assets/base/woman_is_talking.gif');
 const overlayImage = withBase('/pfp.webp');
 // The default overlay is 400px square; the script resets the limit to each overlay's own size.
 const overlayMax = 400 * MAX_OVERLAY_SCALE;
@@ -46,13 +47,13 @@ const overlayMax = 400 * MAX_OVERLAY_SCALE;
 
         <p class="selected-file" id="base-selected-file" aria-live="polite">Using default base GIF.</p>
         <div class="preview-frame">
-          <img
+          {/* Animated WebP came out twice the GIF's size, so the optimised copy stays a GIF. */}
+          <Image
             id="base-preview-image"
             src={baseGif}
+            format="gif"
             alt="Preview of the selected base"
-            width="400"
-            height="218"
-            data-managed-loading
+            loading="eager"
           />
         </div>
       </div>
@@ -96,14 +97,17 @@ const overlayMax = 400 * MAX_OVERLAY_SCALE;
         <p class="selected-file" id="selected-file" aria-live="polite">Using default overlay image.</p>
         <div class="preview-frame overlay-preview" id="overlay-preview" hidden>
           <div class="crop-stage" id="overlay-crop-stage">
+            {
+              /* Shows the reader's own file from a blob: URL, which <Image> cannot process; the marker tells Astro's dev audit so. */
+            }
             <img
               id="overlay-preview-image"
+              data-image-component="true"
               src={overlayImage}
               alt="Selected overlay preview"
               width="400"
               height="400"
               draggable="false"
-              data-managed-loading
             />
             <div class="crop-box" id="overlay-crop-box" hidden></div>
           </div>
@@ -116,26 +120,25 @@ const overlayMax = 400 * MAX_OVERLAY_SCALE;
   <TerminalPanel title="Editor" class="editor-panel">
     <div class="preview-frame overlay-editor" id="overlay-editor">
       <div class="placement-stage" id="placement-stage">
-        <img
+        <Image
           class="stage-base"
           id="stage-base"
           src={baseGif}
+          format="gif"
           alt="Selected base in the placement editor"
-          width="400"
-          height="218"
           draggable="false"
-          data-managed-loading
         />
         <div class="stage-overlay" id="stage-overlay" hidden>
           <div class="box-clip">
+            {/* Same blob: URL as the overlay preview above. */}
             <img
               id="overlay-image"
+              data-image-component="true"
               src={overlayImage}
               alt="Overlay placement preview"
               width="400"
               height="400"
               draggable="false"
-              data-managed-loading
             />
           </div>
         </div>

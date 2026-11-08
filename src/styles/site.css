@@ -18,7 +18,6 @@ html:root {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: clamp(1rem, 2vw, 1.35rem);
-  align-items: start;
 }
 
 .editor-panel {
@@ -33,6 +32,23 @@ html:root {
 
 .panel-copy > * {
   margin: 0;
+}
+
+/* Cards side by side share the row's height; the preview frame takes up whatever the shorter one has spare. */
+.asset-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.asset-panel > .panel-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.asset-panel .preview-frame {
+  flex: 1;
 }
 
 .dropzone {

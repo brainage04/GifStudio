@@ -1,0 +1,200 @@
+---
+import TerminalPanel from '@brainage04/astro-shell/components/TerminalPanel.astro';
+import { withBase } from '@brainage04/astro-shell/withBase';
+import { Image } from 'astro:assets';
+import editorFrame from '../assets/who-is-this-kid/editor-frame.jpg';
+import template from '../data/whoIsThisKidTemplate.json';
+
+const defaultPicture = withBase('/pfp.webp');
+const defaultWord = 'moid';
+const shapes = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'circle', label: 'Circle' },
+  { value: 'square', label: 'Square' },
+  { value: 'alpha', label: 'Own transparency' },
+];
+---
+
+<div class="studio-grid">
+  <div class="studio-assets">
+    <TerminalPanel title="Picture" class="asset-panel">
+      <div class="panel-copy">
+        <div
+          class="dropzone combo-dropzone"
+          id="picture-dropzone"
+          role="group"
+          aria-label="Load picture from file or URL"
+        >
+          <label class="dropzone-prompt" for="picture-file-input">
+            <span><strong>Drop or paste a picture</strong>or click to choose a PNG, JPEG, GIF, or WebP.</span>
+            <input
+              class="sr-only"
+              id="picture-file-input"
+              type="file"
+              accept=".webp,.png,.jpg,.jpeg,.gif,image/webp,image/png,image/jpeg,image/gif"
+            />
+          </label>
+
+          <div class="url-loader" role="group" aria-label="Load picture from URL">
+            <label class="field" for="picture-url-input">
+              Picture URL
+              <input
+                id="picture-url-input"
+                type="url"
+                inputmode="url"
+                autocomplete="off"
+                placeholder="https://example.com/picture.png"
+              />
+            </label>
+            <button class="action-button" id="picture-url-load-button" type="button">Load</button>
+          </div>
+        </div>
+
+        <p class="selected-file" id="picture-selected-file" aria-live="polite">Using default picture.</p>
+        <div class="preview-frame overlay-preview">
+          <div class="crop-stage" id="picture-crop-stage">
+            {
+              /* Shows the reader's own file from a blob: URL, which <Image> cannot process; the marker tells Astro's dev audit so. */
+            }
+            <img
+              id="picture-preview-image"
+              data-image-component="true"
+              src={defaultPicture}
+              alt="Selected upload, with the crop box over it"
+              width="400"
+              height="400"
+              loading="eager"
+              draggable="false"
+            />
+            <div class="crop-box" id="picture-crop-box" hidden></div>
+          </div>
+        </div>
+        <p class="crop-hint">
+          Drag the box or its handles to choose the part of the picture to use; Shift keeps the proportions.
+        </p>
+      </div>
+    </TerminalPanel>
+
+    <TerminalPanel title="Editor" class="asset-panel">
+      <div class="panel-copy">
+        <div class="preview-frame overlay-editor">
+          <div class="placement-stage" id="placement-stage">
+            <Image
+              class="stage-base"
+              id="stage-base"
+              src={editorFrame}
+              alt="Last frame of the GIF, for placing the face"
+              loading="eager"
+              draggable="false"
+            />
+            <div class="stage-overlay" id="stage-overlay" data-aspect="locked" hidden>
+              <div class="box-clip">
+                {/* Same blob: URL as the crop preview above. */}
+                <img
+                  id="stage-picture"
+                  src={defaultPicture}
+                  alt=""
+                  width="400"
+                  height="400"
+                  draggable="false"
+                  data-image-component="true"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls option-controls" role="group" aria-label="Caption word and mask">
+          <label for="word-select">
+            Word
+            <select id="word-select">
+              {
+                template.words.map((word) => (
+                  <option value={word} selected={word === defaultWord}>
+                    {word.toUpperCase()}
+                  </option>
+                ))
+              }
+            </select>
+          </label>
+          <label for="shape-select">
+            Shape
+            <select id="shape-select" aria-describedby="editor-hint">
+              {shapes.map((shape) => <option value={shape.value}>{shape.label}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div class="controls placement-controls" role="group" aria-label="Placement">
+          <label for="scale-input">
+            Size
+            <input
+              id="scale-input"
+              type="number"
+              min="0.5"
+              max="4"
+              step="0.01"
+              value="1.6"
+              required
+              aria-describedby="editor-hint"
+            />
+          </label>
+          <label for="offset-x-input">
+            Offset X %
+            <input
+              id="offset-x-input"
+              type="number"
+              min="-200"
+              max="200"
+              step="1"
+              value="0"
+              required
+              aria-describedby="editor-hint"
+            />
+          </label>
+          <label for="offset-y-input">
+            Offset Y %
+            <input
+              id="offset-y-input"
+              type="number"
+              min="-200"
+              max="200"
+              step="1"
+              value="0"
+              required
+              aria-describedby="editor-hint"
+            />
+          </label>
+        </div>
+
+        <p class="crop-hint" id="editor-hint">
+          Drag the picture or its corners; it follows the kid's face through the GIF. Size is relative to the face (1.6
+          covers it), offsets move it by a share of the face's width. Auto shape uses the picture's transparency when it
+          has any, otherwise a feathered circle.
+        </p>
+      </div>
+    </TerminalPanel>
+  </div>
+
+  <TerminalPanel title="Result" class="editor-panel">
+    <div class="preview-frame result-frame">
+      <Image id="result-image" src={editorFrame} alt="The remade GIF, once rendered" loading="lazy" />
+    </div>
+
+    <div class="panel-actions editor-actions">
+      <span class="crop-hint">"Kid" in both captions becomes the chosen word.</span>
+      <button
+        class="action-button download-button disabled"
+        id="download-button"
+        type="button"
+        aria-disabled="true"
+        disabled>Download GIF</button
+      >
+      <a id="download-link" hidden aria-hidden="true" tabindex="-1"></a>
+    </div>
+
+    <p class="status" id="status" aria-live="polite" hidden></p>
+  </TerminalPanel>
+</div>
+
+<script src="../scripts/whoIsThisKid.ts"></script>

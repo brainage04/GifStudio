@@ -2,4 +2,4 @@
 dist/
 node_modules/
 package-lock.json
-src/data/whoIsThisTemplate.json
+src/data/whoIsThisKidTemplate.json

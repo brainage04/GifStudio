@@ -1,5 +1,5 @@
 /**
- * The two OpenCV calls the "Who is this" compositor makes on a visitor's picture, reproduced with
+ * The two OpenCV calls the WhoIsThisKid compositor makes on a visitor's picture, reproduced with
  * OpenCV's border handling and rounding so the browser remake matches the original Python script.
  */
 

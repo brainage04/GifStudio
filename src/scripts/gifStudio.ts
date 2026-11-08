@@ -1,4 +1,6 @@
 import { fetchFile } from '@ffmpeg/util';
+// FFmpeg renders from the original GIF; the page shows Astro's optimised copy of it.
+import defaultBaseSrc from '../assets/base/woman_is_talking.gif?url';
 import { decodeAnimationFrames, frameSequenceInput } from '../lib/decodedFrames';
 import { moveBoxInside, type Box } from '../lib/boxGeometry';
 import { clampOverlayDimension, maxOverlayDimension, MIN_OVERLAY_DIMENSION } from '../lib/placement';
@@ -11,6 +13,7 @@ import {
   fetchRemoteFile,
   flashDropzone,
   isSupportedImage,
+  manageImageLoading,
   pastedImage,
   requireElement,
 } from './shared';
@@ -85,7 +88,7 @@ const overlayRequests: SourceRequests = {
   fallbackName: 'overlay-image',
 };
 const { renderer: gifRenderer, resetLog, logDetail: ffmpegDetail } = createRenderer();
-const defaultBaseSrc = `${appBase}assets/base/woman_is_talking.gif`;
+const defaultBasePreviewSrc = basePreviewImage.getAttribute('src') ?? defaultBaseSrc;
 
 const setStatus = (message: string) => {
   statusText.textContent = message;
@@ -103,18 +106,7 @@ const syncResizeHandles = () => {
   stageOverlay.dataset.resizeHandles = handlesToggle.checked ? 'visible' : 'hidden';
 };
 
-const loadingManagedImages = [basePreviewImage, overlayPreviewImage, stageBase, overlayImage] as const;
-
-const syncImageLoading = () => {
-  for (const image of loadingManagedImages) {
-    // Viewport-relative, so a scrolled page still marks what the reader can actually see.
-    image.loading = image.getBoundingClientRect().top <= window.innerHeight ? 'eager' : 'lazy';
-  }
-};
-
-const queueImageLoadingSync = () => {
-  window.requestAnimationFrame(syncImageLoading);
-};
+const queueImageLoadingSync = manageImageLoading([basePreviewImage, overlayPreviewImage, stageBase, overlayImage]);
 
 const revokeUrls = () => {
   if (basePreviewUrl) {
@@ -223,7 +215,7 @@ const setBaseFile = (file: File | null) => {
       URL.revokeObjectURL(basePreviewUrl);
       basePreviewUrl = null;
     }
-    setBasePreviewSource(defaultBaseSrc);
+    setBasePreviewSource(defaultBasePreviewSrc);
     setSelectedFileText(baseSelectedFile, 'Using default base GIF.');
     if (overlayFile) {
       scheduleRender(0);
@@ -660,9 +652,7 @@ for (const input of [xInput, yInput, widthInput, heightInput]) {
 window.addEventListener('resize', () => {
   syncPlacementPreview();
   cropEditor.layout(overlayCrop);
-  queueImageLoadingSync();
 });
-window.addEventListener('scroll', queueImageLoadingSync, { passive: true });
 baseUrlLoadButton.addEventListener('click', loadBaseFromUrl);
 baseUrlInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
@@ -672,7 +662,6 @@ baseUrlInput.addEventListener('keydown', (event) => {
 });
 handlesToggle.addEventListener('change', syncResizeHandles);
 syncResizeHandles();
-queueImageLoadingSync();
 window.addEventListener('beforeunload', revokeUrls);
 
 if (stageBase.complete) {

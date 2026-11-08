@@ -1,4 +1,4 @@
-import templateJson from '../data/whoIsThisTemplate.json';
+import templateJson from '../data/whoIsThisKidTemplate.json';
 import { moveBoxInside, type Box } from '../lib/boxGeometry';
 import {
   centeredCrop,
@@ -9,8 +9,8 @@ import {
   resolvePictureShape,
   type PicturePlacement,
   type TemplatePixels,
-  type WhoIsThisTemplate,
-} from '../lib/whoIsThis';
+  type WhoIsThisKidTemplate,
+} from '../lib/whoIsThisKid';
 import { createBoxEditor, showCrop } from './boxEditor';
 import {
   appBase,
@@ -20,12 +20,13 @@ import {
   fetchRemoteFile,
   flashDropzone,
   isSupportedImage,
+  manageImageLoading,
   pastedImage,
   requireElement,
 } from './shared';
 
 // JSON imports widen tuples to arrays; build_template.py writes exactly this shape.
-const template = templateJson as WhoIsThisTemplate;
+const template = templateJson as WhoIsThisKidTemplate;
 
 const dropzone = requireElement('picture-dropzone', HTMLDivElement);
 const fileInput = requireElement('picture-file-input', HTMLInputElement);
@@ -39,6 +40,7 @@ const wordSelect = requireElement('word-select', HTMLSelectElement);
 const shapeSelect = requireElement('shape-select', HTMLSelectElement);
 const placementStage = requireElement('placement-stage', HTMLDivElement);
 const stageOverlay = requireElement('stage-overlay', HTMLDivElement);
+const stageBase = requireElement('stage-base', HTMLImageElement);
 const stagePicture = requireElement('stage-picture', HTMLImageElement);
 const scaleInput = requireElement('scale-input', HTMLInputElement);
 const offsetXInput = requireElement('offset-x-input', HTMLInputElement);
@@ -48,10 +50,11 @@ const downloadButton = requireElement('download-button', HTMLButtonElement);
 const downloadLink = requireElement('download-link', HTMLAnchorElement);
 const statusText = requireElement('status', HTMLParagraphElement);
 
-const assetUrl = (file: string) => `${appBase}assets/who-is-this/${file}`;
+const assetUrl = (file: string) => `${appBase}assets/who-is-this-kid/${file}`;
 const { renderer, resetLog, logDetail } = createRenderer();
 const frameBytes = template.width * template.height * 3;
 const templateSize = { width: template.width, height: template.height };
+const queueImageLoadingSync = manageImageLoading([previewImage, stageBase, stagePicture, resultImage]);
 // The editor shows one frame; the picture's box there maps to a placement relative to that frame's face.
 const [editorFaceX, editorFaceY, editorFace] = template.frames[template.editor.frame]?.face ?? [0, 0, 1];
 
@@ -285,6 +288,7 @@ const showResult = (gif: Blob, filename: string) => {
   const previous = resultUrl;
   resultUrl = URL.createObjectURL(gif);
   resultImage.src = resultUrl;
+  queueImageLoadingSync();
   if (previous) {
     URL.revokeObjectURL(previous);
   }
@@ -357,8 +361,8 @@ const render = async () => {
     }
 
     setStatus('Encoding GIF...');
-    const input = `who-is-this-${id}.raw`;
-    const output = `who-is-this-${id}.gif`;
+    const input = `who-is-this-kid-${id}.raw`;
+    const output = `who-is-this-kid-${id}.gif`;
     const gif = await ffmpegStep(
       () =>
         renderer.run({
@@ -380,7 +384,7 @@ const render = async () => {
       throw new Error('FFmpeg did not return GIF bytes.');
     }
     const stem = file.name.replace(/\.[^.]+$/, '') || 'picture';
-    showResult(new Blob([new Uint8Array(gif)], { type: 'image/gif' }), `${stem}_who_is_this.gif`);
+    showResult(new Blob([new Uint8Array(gif)], { type: 'image/gif' }), `${stem}_who_is_this_kid.gif`);
     setStatus('');
   } catch (error) {
     if (!signal.aborted) {
@@ -523,6 +527,7 @@ previewImage.addEventListener('load', () => {
   cropEditor.layout(pictureCrop);
   syncPlacement();
   void syncPreviewShape();
+  queueImageLoadingSync();
   scheduleRender(0);
 });
 wordSelect.addEventListener('change', () => scheduleRender(0));

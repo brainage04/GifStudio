@@ -103,6 +103,25 @@ export const flashDropzone = (zone: HTMLElement) => {
   window.setTimeout(() => zone.classList.remove('is-dragging'), 600);
 };
 
+/**
+ * Load `images` eagerly when they start in the first screenful of the page and lazily below it (what
+ * Astro's audit expects). Layout shifts as images load and panels resize, so call the returned
+ * function after anything that can move them; window resizes are handled here.
+ */
+export const manageImageLoading = (images: readonly HTMLImageElement[]) => {
+  const sync = () => {
+    for (const image of images) {
+      image.loading = image.getBoundingClientRect().top + window.scrollY < window.innerHeight ? 'eager' : 'lazy';
+    }
+  };
+  const queue = () => {
+    window.requestAnimationFrame(sync);
+  };
+  window.addEventListener('resize', queue);
+  queue();
+  return queue;
+};
+
 /** The page's FFmpeg renderer, plus the tail of FFmpeg's log for error messages. */
 export const createRenderer = () => {
   const ffmpeg = new FFmpeg();
