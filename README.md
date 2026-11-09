@@ -2,7 +2,7 @@
 
 Browser-based GIF compositor for selecting a base GIF or image, cropping and positioning a GIF or image overlay, rendering with FFmpeg WebAssembly, and downloading the result without uploading source files.
 
-The **WhoIsThisKid** page (`/who-is-this-kid/`) remakes the "who is this kid?" GIF: it puts a picture over the kid's face and swaps "kid" in both captions for any word the visitor types, drawn exactly as the original `who_is_this.py` script draws it. The picture can be cropped, resized and moved relative to the face, and masked to a circle, a square or its own transparency. The clip is from IShowSpeed's livestream [irl stream in South Africa (New Years)](https://www.youtube.com/watch?v=2yGZz3Z_p4E&t=2435s), 31 December 2025, at about 40:35; the page credits it and links his channel.
+The **WhoIsThisKid** page (`/who-is-this-kid/`) remakes the "who is this kid?" GIF: it puts a picture over the kid's face and swaps "kid" in both captions for any word the visitor types, drawn exactly as the original `who_is_this.py` script draws it. The picture can be cropped, resized and moved relative to the face, and masked to a circle, a square or its own transparency. The clip is from IShowSpeed's livestream [irl stream in South Africa (New Years)](https://www.youtube.com/watch?v=2yGZz3Z_p4E&t=2435s), 31 December 2025, at about 40:35, and the page credits it.
 
 ## Requirements
 
