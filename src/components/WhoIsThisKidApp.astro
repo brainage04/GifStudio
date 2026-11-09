@@ -3,10 +3,11 @@ import TerminalPanel from '@brainage04/astro-shell/components/TerminalPanel.astr
 import { withBase } from '@brainage04/astro-shell/withBase';
 import { Image } from 'astro:assets';
 import editorFrame from '../assets/who-is-this-kid/editor-frame.jpg';
-import template from '../data/whoIsThisKidTemplate.json';
 
 const defaultPicture = withBase('/pfp.webp');
 const defaultWord = 'moid';
+// The question caption has room for about five letters after "WHO IS THIS"; this only stops pastes.
+const maxWordLength = 12;
 const shapes = [
   { value: 'auto', label: 'Auto' },
   { value: 'circle', label: 'Circle' },
@@ -105,17 +106,17 @@ const shapes = [
         </div>
 
         <div class="controls option-controls" role="group" aria-label="Caption word and mask">
-          <label for="word-select">
+          <label for="word-input">
             Word
-            <select id="word-select">
-              {
-                template.words.map((word) => (
-                  <option value={word} selected={word === defaultWord}>
-                    {word.toUpperCase()}
-                  </option>
-                ))
-              }
-            </select>
+            <input
+              id="word-input"
+              type="text"
+              value={defaultWord}
+              maxlength={maxWordLength}
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="word-hint"
+            />
           </label>
           <label for="shape-select">
             Shape
@@ -172,6 +173,10 @@ const shapes = [
           covers it), offsets move it by a share of the face's width. Auto shape uses the picture's transparency when it
           has any, otherwise a feathered circle.
         </p>
+        <p class="crop-hint" id="word-hint">
+          The word replaces "kid" in both captions, in capitals. It has to fit after "WHO IS THIS", so short words work
+          best (about five letters).
+        </p>
       </div>
     </TerminalPanel>
   </div>
@@ -182,7 +187,7 @@ const shapes = [
     </div>
 
     <div class="panel-actions editor-actions">
-      <span class="crop-hint">"Kid" in both captions becomes the chosen word.</span>
+      <span class="crop-hint">"Kid" in both captions becomes your word.</span>
       <button
         class="action-button download-button disabled"
         id="download-button"
@@ -194,6 +199,13 @@ const shapes = [
     </div>
 
     <p class="status" id="status" aria-live="polite" hidden></p>
+
+    <p class="credit">
+      The clip is from IShowSpeed's livestream{' '}
+      <a href="https://www.youtube.com/watch?v=2yGZz3Z_p4E&t=2435s">irl stream in South Africa 🇿🇦 (New Years)</a>{' '}
+      on YouTube, 31 December 2025, at about 40:35, when he notices a kid riding in the back of his van. The kid has not been
+      identified. More from IShowSpeed: <a href="https://www.youtube.com/@IShowSpeed">youtube.com/@IShowSpeed</a>.
+    </p>
   </TerminalPanel>
 </div>
 

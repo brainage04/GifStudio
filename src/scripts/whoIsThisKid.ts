@@ -1,15 +1,20 @@
 import templateJson from '../data/whoIsThisKidTemplate.json';
 import { moveBoxInside, type Box } from '../lib/boxGeometry';
+import { createGlyphSet, type GlyphData, type GlyphSet } from '../lib/textLayer';
 import {
+  captionWord,
   centeredCrop,
   composeFrame,
+  createCaptions,
   pictureShapes,
   pictureSizeLimit,
   preparePicture,
   resolvePictureShape,
+  type Captions,
   type PicturePlacement,
   type TemplatePixels,
   type WhoIsThisKidTemplate,
+  type WordProblem,
 } from '../lib/whoIsThisKid';
 import { createBoxEditor, showCrop } from './boxEditor';
 import {
@@ -36,7 +41,7 @@ const selectedFile = requireElement('picture-selected-file', HTMLParagraphElemen
 const previewImage = requireElement('picture-preview-image', HTMLImageElement);
 const cropStage = requireElement('picture-crop-stage', HTMLDivElement);
 const cropBox = requireElement('picture-crop-box', HTMLDivElement);
-const wordSelect = requireElement('word-select', HTMLSelectElement);
+const wordInput = requireElement('word-input', HTMLInputElement);
 const shapeSelect = requireElement('shape-select', HTMLSelectElement);
 const placementStage = requireElement('placement-stage', HTMLDivElement);
 const stageOverlay = requireElement('stage-overlay', HTMLDivElement);
@@ -55,6 +60,8 @@ const { renderer, resetLog, logDetail } = createRenderer();
 const frameBytes = template.width * template.height * 3;
 const templateSize = { width: template.width, height: template.height };
 const queueImageLoadingSync = manageImageLoading([previewImage, stageBase, stagePicture, resultImage]);
+/** What the Result panel shows before the first render, and again when a picture cannot be used. */
+const resultPlaceholder = resultImage.getAttribute('src') ?? '';
 // The editor shows one frame; the picture's box there maps to a placement relative to that frame's face.
 const [editorFaceX, editorFaceY, editorFace] = template.frames[template.editor.frame]?.face ?? [0, 0, 1];
 
@@ -68,14 +75,21 @@ let renderSequence = 0;
 let pictureRequest = 0;
 let pictureFetch: AbortController | null = null;
 let templatePixels: Promise<TemplatePixels> | null = null;
+let glyphSet: Promise<GlyphSet> | null = null;
+/** The captions for the last word drawn; their text layers are reused until the word changes. */
+let captions: { word: string; value: Captions } | null = null;
 let decodedPicture: { file: File; image: ImageData } | null = null;
 let pictureSize = { width: 0, height: 0 };
 /** The part of the picture that is used: a square in its natural pixels, centred until the reader crops. */
 let pictureCrop: Box = { x: 0, y: 0, width: 0, height: 0 };
 
-const setStatus = (message: string) => {
+/** The render whose progress the status line shows; other messages (errors, fetches) have no owner. */
+let statusOwner: AbortController | null = null;
+
+const setStatus = (message: string, owner: AbortController | null = null) => {
   statusText.textContent = message;
   statusText.hidden = !message;
+  statusOwner = message ? owner : null;
 };
 
 /** Run an FFmpeg step; a failure message ends with FFmpeg's last log line. */
@@ -114,17 +128,50 @@ const decodeAsset = async (file: string, pixelFormat: string, expectedBytes: num
 const loadTemplatePixels = () => {
   templatePixels ??= (async () => {
     const [patchesWidth, patchesHeight] = template.patches.size;
-    const [overlaysWidth, overlaysHeight] = template.overlays.size;
     return {
       frames: await decodeAsset(template.source, 'rgb24', frameBytes * template.frames.length),
       patches: await decodeAsset(template.patches.file, 'rgb24', patchesWidth * patchesHeight * 3),
-      overlays: await decodeAsset(template.overlays.file, 'rgba', overlaysWidth * overlaysHeight * 4),
     };
   })();
   templatePixels.catch(() => {
     templatePixels = null;
   });
   return templatePixels;
+};
+
+/** The caption font, fetched once when the page opens; a failed load is retried by the next render. */
+const loadGlyphs = () => {
+  glyphSet ??= (async () => {
+    const response = await fetch(assetUrl(template.glyphs));
+    if (!response.ok) {
+      throw new Error(`The caption font could not be loaded (${response.status}).`);
+    }
+    return createGlyphSet((await response.json()) as GlyphData);
+  })();
+  glyphSet.catch(() => {
+    glyphSet = null;
+  });
+  return glyphSet;
+};
+
+const captionsFor = (glyphs: GlyphSet, word: string) => {
+  if (captions?.word !== word) {
+    captions = { word, value: createCaptions(template, glyphs, word) };
+  }
+  return captions.value;
+};
+
+const wordMessage = (problem: WordProblem, word: string) => {
+  switch (problem.kind) {
+    case 'empty':
+      return 'Type a word for the captions.';
+    case 'unsupported':
+      return `The caption font has no ${problem.characters.map((character) => `"${character}"`).join(', ')}.`;
+    case 'too-wide':
+      return `"${word}" does not fit in the captions; try a shorter word.`;
+    case 'no-ink':
+      return `"${word}" has nothing to draw.`;
+  }
 };
 
 /** The picture's first frame as RGBA, upright per its EXIF orientation. */
@@ -273,7 +320,9 @@ const cropEditor = createBoxEditor({
 /** A drag will render once it ends; a render still running would only compete with it for the main thread. */
 function stopRenderForDrag() {
   cancelRender();
-  setStatus('');
+  if (statusOwner) {
+    setStatus('');
+  }
 }
 
 /** Disable the download while a new result is pending; the old one stays on screen until replaced. */
@@ -282,6 +331,16 @@ const disableDownload = () => {
   downloadButton.disabled = true;
   downloadButton.classList.add('disabled');
   downloadButton.setAttribute('aria-disabled', 'true');
+};
+
+/** Back to the placeholder: the shown result was made from a picture that is no longer chosen. */
+const resetResult = () => {
+  disableDownload();
+  resultImage.src = resultPlaceholder;
+  if (resultUrl) {
+    URL.revokeObjectURL(resultUrl);
+    resultUrl = null;
+  }
 };
 
 const showResult = (gif: Blob, filename: string) => {
@@ -323,7 +382,7 @@ const render = async () => {
   }
   const placement = placementValues();
   const crop = roundedCrop();
-  const word = wordSelect.value;
+  const word = captionWord(wordInput.value);
   const shape = pictureShapes.find((value) => value === shapeSelect.value) ?? 'auto';
 
   const controller = new AbortController();
@@ -331,12 +390,28 @@ const render = async () => {
   // Every path that supersedes this render aborts it, so `signal.aborted` is its identity check.
   const { signal } = controller;
   const id = ++renderSequence;
+  // The render takes over the status line as it starts. A message something else writes while it
+  // runs (a failed URL fetch, an unreadable file) stays up: progress and the final clear only touch
+  // the line while it still shows this render's own message.
+  setStatus('Loading browser renderer...', controller);
+  const progress = (message: string) => {
+    if (statusOwner === controller) {
+      setStatus(message, controller);
+    }
+  };
 
   try {
-    setStatus('Loading browser renderer...');
+    const glyphs = await loadGlyphs();
+    signal.throwIfAborted();
+    const wordCaptions = captionsFor(glyphs, word);
+    wordInput.setAttribute('aria-invalid', String(Boolean(wordCaptions.problem)));
+    if (wordCaptions.problem) {
+      setStatus(wordMessage(wordCaptions.problem, word));
+      return;
+    }
     await renderer.prepare();
     signal.throwIfAborted();
-    setStatus('Loading the GIF template...');
+    progress('Loading the GIF template...');
     const pixels = await loadTemplatePixels();
     signal.throwIfAborted();
     const image = await readPicture(file);
@@ -350,17 +425,20 @@ const render = async () => {
     const frames = new Uint8Array(frameBytes * template.frames.length);
     for (let index = 0; index < template.frames.length; index += 1) {
       if (index % 4 === 0) {
-        setStatus(`Compositing frame ${index + 1} of ${template.frames.length}...`);
+        progress(`Compositing frame ${index + 1} of ${template.frames.length}...`);
         // Let the page paint and take input between batches of frames.
         const { promise, resolve } = Promise.withResolvers<void>();
         window.setTimeout(resolve, 0);
         await promise;
         signal.throwIfAborted();
       }
-      frames.set(composeFrame(template, pixels, index, picture, { placement, word }), index * frameBytes);
+      frames.set(
+        composeFrame(template, pixels, index, picture, { placement, captions: wordCaptions }),
+        index * frameBytes,
+      );
     }
 
-    setStatus('Encoding GIF...');
+    progress('Encoding GIF...');
     const input = `who-is-this-kid-${id}.raw`;
     const output = `who-is-this-kid-${id}.gif`;
     const gif = await ffmpegStep(
@@ -385,7 +463,7 @@ const render = async () => {
     }
     const stem = file.name.replace(/\.[^.]+$/, '') || 'picture';
     showResult(new Blob([new Uint8Array(gif)], { type: 'image/gif' }), `${stem}_who_is_this_kid.gif`);
-    setStatus('');
+    progress('');
   } catch (error) {
     if (!signal.aborted) {
       setStatus(errorMessage(error, 'Render failed in this browser.'));
@@ -418,6 +496,9 @@ const supersede = () => {
 };
 
 const setPicture = (file: File, label?: string) => {
+  // The shown result belongs to the previous picture: nothing may download it from now on.
+  cancelRender();
+  disableDownload();
   pictureFile = file;
   if (previewUrl) {
     URL.revokeObjectURL(previewUrl);
@@ -514,6 +595,7 @@ urlInput.addEventListener('keydown', (event) => {
   }
 });
 previewImage.addEventListener('error', () => {
+  resetResult();
   setStatus('That picture could not be decoded by this browser.');
 });
 // A new picture is measured, centre-cropped and rendered once its preview has loaded.
@@ -530,7 +612,7 @@ previewImage.addEventListener('load', () => {
   queueImageLoadingSync();
   scheduleRender(0);
 });
-wordSelect.addEventListener('change', () => scheduleRender(0));
+wordInput.addEventListener('input', () => scheduleRender());
 shapeSelect.addEventListener('change', () => {
   void syncPreviewShape();
   scheduleRender(0);
@@ -556,4 +638,6 @@ window.addEventListener('beforeunload', () => {
   }
 });
 
+// The caption font is small; fetching it now lets the first render check the word at once.
+void loadGlyphs().catch(() => {});
 loadDefaultPicture();

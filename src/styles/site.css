@@ -123,6 +123,7 @@ html:root {
 }
 
 input[type='url'],
+input[type='text'],
 select {
   width: 100%;
   min-width: 0;
@@ -151,6 +152,17 @@ select {
 
 input[type='url']::placeholder {
   color: color-mix(in srgb, var(--foreground2) 78%, transparent);
+}
+
+input[type='text'][aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.credit {
+  margin: 0;
+  color: var(--foreground2);
+  font-size: 0.88rem;
+  line-height: 1.5;
 }
 
 .selected-file,

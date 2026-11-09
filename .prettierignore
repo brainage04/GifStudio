@@ -3,3 +3,5 @@ dist/
 node_modules/
 package-lock.json
 src/data/whoIsThisKidTemplate.json
+public/assets/who-is-this-kid/glyphs.json
+src/lib/__fixtures__/
