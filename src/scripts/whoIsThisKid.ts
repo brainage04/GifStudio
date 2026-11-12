@@ -168,7 +168,7 @@ const wordMessage = (problem: WordProblem, word: string) => {
     case 'unsupported':
       return `The caption font has no ${problem.characters.map((character) => `"${character}"`).join(', ')}.`;
     case 'too-wide':
-      return `"${word}" does not fit in the captions; try a shorter word.`;
+      return `"${word}" does not fit in the captions. Try a shorter word.`;
     case 'no-ink':
       return `"${word}" has nothing to draw.`;
   }

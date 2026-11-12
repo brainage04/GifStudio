@@ -369,7 +369,7 @@ const renderGif = async () => {
       }
 
       if (decoded.totalFrames > decoded.frames.length) {
-        notice = `Only the first ${decoded.frames.length} of ${decoded.totalFrames} base frames were rendered; longer animations are cut short to fit in browser memory.`;
+        notice = `Only the first ${decoded.frames.length} of ${decoded.totalFrames} base frames were rendered. Longer animations are cut short to fit in browser memory.`;
       }
     }
 
