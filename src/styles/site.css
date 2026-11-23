@@ -23,7 +23,7 @@ html:root {
 .editor-panel {
   --editor-control-gap: 1rem;
   min-width: 0;
-  /* The panel is a block, so its children need the same gap the stacks get from their grid. */
+  /* One gap for every child, so the header, controls, actions and status share one rhythm. */
   display: grid;
   gap: var(--editor-control-gap);
   align-content: start;
